@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.810.25
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebAppYDisk", "WebAppYDisk\WebAppYDisk.csproj", "{AF3FEEF9-0575-4CF6-A528-90A46DAEEF5F}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{ED7BD3E4-1C84-4F86-8D1F-7AE30868F6B4}"
+	ProjectSection(SolutionItems) = preProject
+		1.txt = 1.txt
+		2.txt = 2.txt
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|anycpu = Debug|anycpu
+		Release|anycpu = Release|anycpu
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AF3FEEF9-0575-4CF6-A528-90A46DAEEF5F}.Debug|anycpu.ActiveCfg = Debug|anycpu
+		{AF3FEEF9-0575-4CF6-A528-90A46DAEEF5F}.Debug|anycpu.Build.0 = Debug|anycpu
+		{AF3FEEF9-0575-4CF6-A528-90A46DAEEF5F}.Release|anycpu.ActiveCfg = Release|anycpu
+		{AF3FEEF9-0575-4CF6-A528-90A46DAEEF5F}.Release|anycpu.Build.0 = Release|anycpu
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {BE379D9B-962A-4085-82CD-51BF31E4C0DB}
+	EndGlobalSection
+EndGlobal

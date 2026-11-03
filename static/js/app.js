@@ -1,0 +1,321 @@
+(function () {
+  const authLabel = document.getElementById("auth-label");
+  const loginBtn = document.getElementById("login-btn");
+  const logoutBtn = document.getElementById("logout-btn");
+
+  window.OMT = {
+    user: null,
+    tracks: [],
+    onPlay(track) {
+      fetch("/api/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ track_id: track.id, position_sec: 0 }),
+      }).catch(() => {});
+    },
+  };
+
+  document.querySelectorAll(".nav-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("is-active"));
+      btn.classList.add("is-active");
+      const view = btn.dataset.view;
+      document.querySelectorAll(".view").forEach((v) => v.classList.remove("is-visible"));
+      document.getElementById(`view-${view}`).classList.add("is-visible");
+      if (view === "favorites") loadFavorites();
+      if (view === "history") loadHistory();
+      if (view === "import") loadImport();
+    });
+  });
+
+  async function api(path, opts) {
+    const res = await fetch(path, opts);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const j = await res.json();
+        detail = j.detail || JSON.stringify(j);
+      } catch (_) {
+        /* ignore */
+      }
+      throw new Error(detail);
+    }
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("application/json")) return res.json();
+    return res.text();
+  }
+
+  function renderTracks(el, tracks, opts = {}) {
+    if (!tracks.length) {
+      el.innerHTML = `<p class="muted">${opts.empty || "Пусто"}</p>`;
+      return;
+    }
+    el.innerHTML = tracks
+      .map(
+        (t, i) => `
+      <div class="track" data-id="${t.id}" role="button" tabindex="0">
+        <span class="track-num">${t.track_num || i + 1}</span>
+        <div class="track-meta">
+          <div class="track-title">${escapeHtml(t.title)}</div>
+          <div class="track-sub">${escapeHtml(t.artist || "")}${t.duration_sec ? " · " + Math.round(t.duration_sec) + "s" : ""}</div>
+        </div>
+        <button type="button" class="fav-btn ${t.is_favorite ? "is-on" : ""}" data-fav="${t.id}" aria-label="Favorite">${t.is_favorite ? "♥" : "♡"}</button>
+        <span class="muted">${opts.extra ? opts.extra(t) : ""}</span>
+      </div>`
+      )
+      .join("");
+
+    el.querySelectorAll(".track").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".fav-btn")) return;
+        const id = Number(row.dataset.id);
+        window.OMTPlayer.setQueue(tracks, id);
+      });
+    });
+    el.querySelectorAll(".fav-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = Number(btn.dataset.fav);
+        const on = btn.classList.contains("is-on");
+        try {
+          if (on) await api(`/api/favorites/${id}`, { method: "DELETE" });
+          else await api(`/api/favorites/${id}`, { method: "POST" });
+          btn.classList.toggle("is-on", !on);
+          btn.textContent = !on ? "♥" : "♡";
+          const t = window.OMT.tracks.find((x) => x.id === id);
+          if (t) t.is_favorite = !on ? 1 : 0;
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  async function refreshAuth() {
+    const st = await api("/auth/status");
+    window.OMT.user = st.user;
+    if (st.authenticated) {
+      authLabel.textContent = st.user.display_name || "User";
+      loginBtn.classList.add("hidden");
+      logoutBtn.classList.remove("hidden");
+    } else {
+      authLabel.textContent = st.dev_auth_available
+        ? "Гость (dev login)"
+        : st.oauth_configured
+          ? "Не вошли"
+          : "OAuth не настроен";
+      loginBtn.classList.remove("hidden");
+      loginBtn.href = st.dev_auth_available ? "/auth/dev-login" : "/auth/login";
+      loginBtn.textContent = st.dev_auth_available ? "Dev-вход" : "Войти";
+      logoutBtn.classList.add("hidden");
+    }
+    return st;
+  }
+
+  async function loadLibrary() {
+    const el = document.getElementById("library-list");
+    try {
+      const data = await api("/api/library");
+      window.OMT.tracks = data.tracks;
+      renderTracks(el, data.tracks, { empty: "Библиотека пуста — загрузите трек" });
+    } catch (err) {
+      el.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function loadFavorites() {
+    const el = document.getElementById("favorites-list");
+    try {
+      const data = await api("/api/favorites");
+      data.tracks.forEach((t) => (t.is_favorite = 1));
+      renderTracks(el, data.tracks, { empty: "Пока нет избранного" });
+    } catch (err) {
+      el.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function loadHistory() {
+    const el = document.getElementById("history-list");
+    try {
+      const data = await api("/api/history");
+      renderTracks(el, data.items, {
+        empty: "История пуста",
+        extra: (t) => escapeHtml(t.played_at || ""),
+      });
+    } catch (err) {
+      el.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  document.getElementById("upload-input").addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    const status = document.getElementById("upload-status");
+    if (!file) return;
+    status.textContent = "Загрузка…";
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      await api("/api/upload", { method: "POST", body: fd });
+      status.textContent = "Готово";
+      await loadLibrary();
+    } catch (err) {
+      status.textContent = err.message;
+    }
+    e.target.value = "";
+  });
+
+  let pollTimer = null;
+
+  async function loadImport() {
+    const lt = document.getElementById("lt-status");
+    try {
+      const st = await api("/api/import/status");
+      lt.textContent = st.available
+        ? "libtorrent: доступен"
+        : `libtorrent: недоступен (${st.error || "not installed"}) — список файлов может быть stub`;
+    } catch (err) {
+      lt.textContent = err.message;
+    }
+    await refreshJobs();
+  }
+
+  async function refreshJobs() {
+    const el = document.getElementById("jobs-list");
+    try {
+      const data = await api("/api/import/jobs");
+      el.innerHTML = data.jobs
+        .map(
+          (j) => `
+        <div class="job-row" data-job="${j.id}">
+          <span>#${j.id} · ${escapeHtml(j.source_type)} · ${escapeHtml(j.status)}${j.progress ? " · " + Math.round(j.progress * 100) + "%" : ""}</span>
+          <button type="button" class="btn btn-ghost job-open" data-job="${j.id}">Открыть</button>
+        </div>`
+        )
+        .join("") || `<p class="muted">Нет заданий</p>`;
+      el.querySelectorAll(".job-open").forEach((btn) => {
+        btn.addEventListener("click", () => showJob(Number(btn.dataset.job)));
+      });
+    } catch (err) {
+      el.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function showJob(jobId) {
+    const box = document.getElementById("import-job");
+    box.classList.remove("hidden");
+    const job = await api(`/api/import/jobs/${jobId}`);
+    const files = job.file_list || [];
+    if (job.status === "awaiting_confirm" || (files.length && job.status !== "done")) {
+      box.innerHTML = `
+        <h3>Задание #${job.id}</h3>
+        <p class="muted">${escapeHtml(job.status)}${job.error ? " — " + escapeHtml(job.error) : ""}</p>
+        <div class="file-pick">
+          ${files
+            .map(
+              (f) => `
+            <label>
+              <input type="checkbox" value="${f.index}" ${f.audio ? "checked" : ""} />
+              <span>${escapeHtml(f.path)} <span class="muted">(${f.size} bytes)${f.audio ? "" : " · not audio"}</span></span>
+            </label>`
+            )
+            .join("")}
+        </div>
+        <label class="legal-check">
+          <input type="checkbox" id="legal-ok" />
+          <span>Подтверждаю, что у меня есть законное право скачивать и хранить выбранные файлы (личная копия / лицензия / общественное достояние).</span>
+        </label>
+        <button type="button" class="btn" id="confirm-import">Подтвердить и скачать</button>
+      `;
+      document.getElementById("confirm-import").addEventListener("click", async () => {
+        const selected = [...box.querySelectorAll(".file-pick input:checked")].map((i) =>
+          Number(i.value)
+        );
+        const legal = document.getElementById("legal-ok").checked;
+        try {
+          await api(`/api/import/jobs/${jobId}/confirm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ selected, legal_confirmed: legal }),
+          });
+          startPoll(jobId);
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    } else {
+      box.innerHTML = `
+        <h3>Задание #${job.id}</h3>
+        <p>Статус: <strong>${escapeHtml(job.status)}</strong> · прогресс ${Math.round((job.progress || 0) * 100)}%</p>
+        ${job.error ? `<p style="color:var(--danger)">${escapeHtml(job.error)}</p>` : ""}
+      `;
+      if (["downloading", "uploading", "listing", "pending"].includes(job.status)) {
+        startPoll(jobId);
+      }
+    }
+  }
+
+  function startPoll(jobId) {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        await showJob(jobId);
+        await refreshJobs();
+        const job = await api(`/api/import/jobs/${jobId}`);
+        if (["done", "error", "cancelled", "awaiting_confirm"].includes(job.status)) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          if (job.status === "done") loadLibrary();
+        }
+      } catch (_) {
+        /* ignore transient */
+      }
+    }, 2000);
+  }
+
+  document.getElementById("magnet-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const magnet = document.getElementById("magnet-input").value.trim();
+    const fd = new FormData();
+    fd.append("magnet", magnet);
+    try {
+      const res = await api("/api/import/magnet", { method: "POST", body: fd });
+      startPoll(res.job_id);
+      await refreshJobs();
+      setTimeout(() => showJob(res.job_id), 800);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById("torrent-input").addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await api("/api/import/torrent", { method: "POST", body: fd });
+      startPoll(res.job_id);
+      await refreshJobs();
+      setTimeout(() => showJob(res.job_id), 800);
+    } catch (err) {
+      alert(err.message);
+    }
+    e.target.value = "";
+  });
+
+  refreshAuth()
+    .then((st) => {
+      if (st.authenticated) return loadLibrary();
+    })
+    .catch((err) => {
+      authLabel.textContent = err.message;
+    });
+})();

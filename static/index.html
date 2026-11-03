@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OneMoreTime</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/app.css" />
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+  <header class="top">
+    <a class="brand" href="/">OneMoreTime</a>
+    <nav class="nav">
+      <button type="button" data-view="library" class="nav-btn is-active">Библиотека</button>
+      <button type="button" data-view="favorites" class="nav-btn">Избранное</button>
+      <button type="button" data-view="history" class="nav-btn">История</button>
+      <button type="button" data-view="import" class="nav-btn">Импорт</button>
+      <a href="/legal" class="nav-link">Легальные источники</a>
+    </nav>
+    <div class="auth" id="auth-box">
+      <span id="auth-label">…</span>
+      <a id="login-btn" class="btn" href="/auth/login">Войти</a>
+      <a id="logout-btn" class="btn btn-ghost hidden" href="/auth/logout">Выйти</a>
+    </div>
+  </header>
+
+  <main class="main">
+    <section id="view-library" class="view is-visible">
+      <div class="section-head">
+        <h1>Библиотека</h1>
+        <p>Личная музыка на Яндекс.Диске</p>
+      </div>
+      <form id="upload-form" class="upload-bar">
+        <label class="file-label">
+          <span>Загрузить аудио</span>
+          <input type="file" id="upload-input" accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" />
+        </label>
+        <span id="upload-status" class="muted"></span>
+      </form>
+      <div id="library-list" class="track-list"></div>
+    </section>
+
+    <section id="view-favorites" class="view">
+      <div class="section-head">
+        <h1>Избранное</h1>
+        <p>Треки, отмеченные сердцем</p>
+      </div>
+      <div id="favorites-list" class="track-list"></div>
+    </section>
+
+    <section id="view-history" class="view">
+      <div class="section-head">
+        <h1>История</h1>
+        <p>Недавние прослушивания</p>
+      </div>
+      <div id="history-list" class="track-list"></div>
+    </section>
+
+    <section id="view-import" class="view">
+      <div class="section-head">
+        <h1>Торрент-импорт</h1>
+        <p>Magnet или .torrent → список файлов → подтверждение прав → Диск</p>
+      </div>
+      <p id="lt-status" class="banner muted"></p>
+      <form id="magnet-form" class="import-form">
+        <label>
+          Magnet-ссылка
+          <input type="text" id="magnet-input" placeholder="magnet:?xt=urn:btih:…" />
+        </label>
+        <button type="submit" class="btn">Получить список файлов</button>
+      </form>
+      <form id="torrent-form" class="import-form">
+        <label class="file-label">
+          <span>.torrent файл</span>
+          <input type="file" id="torrent-input" accept=".torrent" />
+        </label>
+      </form>
+      <div id="import-job" class="import-job hidden"></div>
+      <div id="jobs-list" class="jobs"></div>
+    </section>
+  </main>
+
+  <footer class="player" id="player">
+    <div class="now">
+      <div id="now-title" class="now-title">Ничего не играет</div>
+      <div id="now-artist" class="now-artist muted"></div>
+    </div>
+    <div class="controls">
+      <button type="button" id="btn-shuffle" title="Shuffle" aria-pressed="false">⇄</button>
+      <button type="button" id="btn-prev" title="Previous">⏮</button>
+      <button type="button" id="btn-play" title="Play/Pause">▶</button>
+      <button type="button" id="btn-next" title="Next">⏭</button>
+      <button type="button" id="btn-repeat" title="Repeat" data-mode="off">Repeat</button>
+    </div>
+    <div class="seek-row">
+      <span id="time-cur">0:00</span>
+      <input type="range" id="seek" min="0" max="1000" value="0" />
+      <span id="time-dur">0:00</span>
+    </div>
+    <label class="rate">
+      Скорость
+      <select id="rate">
+        <option value="0.75">0.75×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.25">1.25×</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+      </select>
+    </label>
+    <audio id="audio" preload="metadata"></audio>
+  </footer>
+
+  <script src="/js/player.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

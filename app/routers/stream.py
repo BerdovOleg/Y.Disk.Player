@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
+from app.config import STREAM_EARLY_BYTES
 from app.deps import require_user, user_token
-from app.disk.client import DiskError, download_to_path, get_download_href
+from app.disk.client import DiskError, get_download_href
 from app.db import get_db, row_to_dict
 from app.hot_cache import cache_stats, get_cached, put_from_path
 
@@ -45,35 +47,20 @@ def _ext_for_track(track: dict) -> str:
     return ".bin"
 
 
-async def _populate_cache(user_id: int, track: dict, token: str) -> None:
-    try:
-        ext = _ext_for_track(track)
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-            tmp_path = Path(tmp.name)
-        try:
-            await download_to_path(token, track["disk_path"], tmp_path)
-            await put_from_path(
-                user_id,
-                int(track["id"]),
-                tmp_path,
-                mime=track.get("mime"),
-            )
-        finally:
-            tmp_path.unlink(missing_ok=True)
-    except Exception:
-        log.exception("cache populate failed track=%s", track.get("id"))
-
-
 @router.get("/cache/status")
 def stream_cache_status(request: Request):
     require_user(request)
-    return cache_stats()
+    return {**cache_stats(), "early_bytes": STREAM_EARLY_BYTES}
 
 
 @router.get("/stream/{track_id}")
 async def stream_track(track_id: int, request: Request):
+    """
+    Fast start / progressive stream:
+    - Cache HIT → FileResponse (browser Range seek works).
+    - Cache MISS → Range-proxy Disk immediately (no wait for full download).
+      Full file tees into hot cache in the background for the next play.
+    """
     user = require_user(request)
     token = user_token(user)
 
@@ -88,7 +75,6 @@ async def stream_track(track_id: int, request: Request):
     if track.get("available") == 0:
         raise HTTPException(410, "Track file missing on Disk — run library scan")
 
-    # Dev stub token cannot hit real Disk (cache may still serve)
     cached = get_cached(user["id"], track_id)
     if cached is not None:
         media_type = _normalize_mime(track.get("mime"))
@@ -120,13 +106,12 @@ async def stream_track(track_id: int, request: Request):
             )
         raise HTTPException(exc.status or 502, detail) from exc
 
-    # Populate hot cache in background for next hit
-    asyncio.create_task(_populate_cache(user["id"], track, token))
-
     range_header = request.headers.get("range")
-    upstream_headers: dict[str, str] = {
-        "Accept": "*/*",
-    }
+    # Full-body requests: tee to cache while streaming (early play + fill).
+    # Range seeks: passthrough only — do not corrupt partial cache writes.
+    want_tee = not range_header
+
+    upstream_headers: dict[str, str] = {"Accept": "*/*"}
     if range_header:
         upstream_headers["Range"] = range_header
 
@@ -157,6 +142,8 @@ async def stream_track(track_id: int, request: Request):
         "Cache-Control": "private, max-age=0, no-transform",
         "Content-Type": media_type,
         "X-OMT-Cache": "MISS",
+        "X-OMT-Early-Bytes": str(STREAM_EARLY_BYTES),
+        "X-OMT-Progressive": "1" if want_tee else "0",
     }
     for key in ("Content-Length", "Content-Range"):
         if key in upstream.headers:
@@ -166,13 +153,63 @@ async def stream_track(track_id: int, request: Request):
         out_headers["Content-Type"] = _normalize_mime(up_ct.split(";")[0].strip())
         media_type = out_headers["Content-Type"]
 
+    tee_path: Path | None = None
+    tee_fp = None
+    if want_tee:
+        ext = _ext_for_track(track)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+        tee_path = Path(tmp.name)
+        tee_fp = tmp
+
+    written = 0
+    early_logged = False
+    complete = False
+    expected_len: int | None = None
+    cl = upstream.headers.get("content-length")
+    if cl and cl.isdigit():
+        expected_len = int(cl)
+    user_id = user["id"]
+    track_id_local = int(track["id"])
+    mime_local = track.get("mime")
+
     async def body_iter():
+        nonlocal written, early_logged, tee_fp, complete
         try:
             async for chunk in upstream.aiter_bytes(64 * 1024):
+                if tee_fp is not None:
+                    tee_fp.write(chunk)
+                    written += len(chunk)
+                    if not early_logged and written >= STREAM_EARLY_BYTES:
+                        early_logged = True
+                        log.debug(
+                            "progressive early bytes ready track=%s n=%s",
+                            track_id_local,
+                            written,
+                        )
                 yield chunk
+            complete = True
         finally:
             await upstream.aclose()
             await client.aclose()
+            if tee_fp is not None and tee_path is not None:
+                try:
+                    tee_fp.flush()
+                    tee_fp.close()
+                    tee_fp = None
+                    size_ok = tee_path.exists() and tee_path.stat().st_size > 0
+                    full = complete and (
+                        expected_len is None or written >= expected_len
+                    )
+                    if size_ok and full:
+                        asyncio.create_task(
+                            _finalize_cache(user_id, track_id_local, tee_path, mime_local)
+                        )
+                    else:
+                        tee_path.unlink(missing_ok=True)
+                except Exception:
+                    log.exception("tee finalize failed track=%s", track_id_local)
+                    if tee_path is not None:
+                        tee_path.unlink(missing_ok=True)
 
     return StreamingResponse(
         body_iter(),
@@ -180,3 +217,14 @@ async def stream_track(track_id: int, request: Request):
         media_type=media_type,
         headers=out_headers,
     )
+
+
+async def _finalize_cache(
+    user_id: int, track_id: int, path: Path, mime: str | None
+) -> None:
+    try:
+        await put_from_path(user_id, track_id, path, mime=mime)
+    except Exception:
+        log.exception("cache put failed track=%s", track_id)
+    finally:
+        path.unlink(missing_ok=True)

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.audio_meta import UNKNOWN_ALBUM, UNKNOWN_ARTIST, UNKNOWN_GENRE, safe_segment
 from app.db import get_db, row_to_dict, sync_track_fts
 from app.disk.client import music_path
+
+LibraryView = Literal["genre", "artist", "album"]
+LIBRARY_VIEWS: tuple[str, ...] = ("genre", "artist", "album")
 
 
 def album_disk_from_remote(remote: str, artist: str, album: str, year: int | None) -> str:
@@ -108,15 +111,118 @@ def upsert_track_from_tags(
         )  # type: ignore[return-value]
 
 
-def build_library_tree(tracks: list[dict[str, Any]], albums_by_id: dict[int, dict]) -> list[dict]:
-    """Genre → Artist → Album → Track nested tree. Tracks keep list order within album."""
-    # genre -> artist -> album_id -> tracks
+def _sort_tracks(tracks: list[dict]) -> list[dict]:
+    return sorted(
+        tracks,
+        key=lambda x: (
+            x.get("track_num") is None,
+            x.get("track_num") or 0,
+            (x.get("title") or "").lower(),
+        ),
+    )
+
+
+def _album_sort_key(albums_by_id: dict[int, dict], aid: int) -> tuple:
+    alb = albums_by_id.get(aid) or {}
+    return (
+        alb.get("year") is None,
+        alb.get("year") or 0,
+        (alb.get("title") or "").lower(),
+    )
+
+
+def _album_node(
+    album_id: int,
+    tracks: list[dict],
+    albums_by_id: dict[int, dict],
+    *,
+    artist: str,
+    genre: str | None = None,
+) -> dict:
+    alb = albums_by_id.get(album_id) or {}
+    tracks_sorted = _sort_tracks(tracks)
+    return {
+        "album_id": album_id or None,
+        "title": alb.get("title")
+        or (tracks_sorted[0].get("album") if tracks_sorted else UNKNOWN_ALBUM)
+        or (tracks_sorted[0].get("album_title") if tracks_sorted else None)
+        or UNKNOWN_ALBUM,
+        "year": alb.get("year"),
+        "artist": artist,
+        "genre": genre,
+        "tracks": tracks_sorted,
+    }
+
+
+def build_library_tree(
+    tracks: list[dict[str, Any]],
+    albums_by_id: dict[int, dict],
+    mode: str = "genre",
+) -> list[dict]:
+    """
+    Nested library tree.
+    mode=genre  → Genre → Artist → Album → Track
+    mode=artist → Artist → Album → Track
+    mode=album  → Album → Track
+    """
+    view = mode if mode in LIBRARY_VIEWS else "genre"
+
+    if view == "album":
+        albums: dict[int, list[dict]] = {}
+        for t in tracks:
+            albums.setdefault(t.get("album_id") or 0, []).append(t)
+        out = []
+        for album_id in sorted(albums.keys(), key=lambda a: _album_sort_key(albums_by_id, a)):
+            sample = albums[album_id][0]
+            artist = sample.get("artist") or UNKNOWN_ARTIST
+            genre = (sample.get("genre") or UNKNOWN_GENRE).strip() or UNKNOWN_GENRE
+            out.append(
+                _album_node(
+                    album_id,
+                    albums[album_id],
+                    albums_by_id,
+                    artist=artist,
+                    genre=genre,
+                )
+            )
+        return out
+
+    if view == "artist":
+        artists: dict[str, dict[int, list[dict]]] = {}
+        for t in tracks:
+            artist = t.get("artist") or UNKNOWN_ARTIST
+            album_id = t.get("album_id") or 0
+            artists.setdefault(artist, {}).setdefault(album_id, []).append(t)
+        out = []
+        for artist in sorted(artists.keys(), key=str.lower):
+            albums_out = []
+            album_map = artists[artist]
+            for album_id in sorted(
+                album_map.keys(), key=lambda a: _album_sort_key(albums_by_id, a)
+            ):
+                sample = album_map[album_id][0]
+                genre = (sample.get("genre") or UNKNOWN_GENRE).strip() or UNKNOWN_GENRE
+                albums_out.append(
+                    _album_node(
+                        album_id,
+                        album_map[album_id],
+                        albums_by_id,
+                        artist=artist,
+                        genre=genre,
+                    )
+                )
+            out.append({"artist": artist, "albums": albums_out})
+        return out
+
+    # genre (default)
     genres: dict[str, dict[str, dict[int, list[dict]]]] = {}
     for t in tracks:
         genre = (t.get("genre") or UNKNOWN_GENRE).strip() or UNKNOWN_GENRE
         artist = t.get("artist") or UNKNOWN_ARTIST
         album_id = t.get("album_id") or 0
-        genres.setdefault(genre, {}).setdefault(artist, {}).setdefault(album_id, []).append(t)
+        genres.setdefault(genre, {}).setdefault(artist, {}).setdefault(album_id, []).append(
+            t
+        )
 
     tree: list[dict] = []
     for genre in sorted(genres.keys(), key=lambda g: (g == UNKNOWN_GENRE, g.lower())):
@@ -124,37 +230,17 @@ def build_library_tree(tracks: list[dict[str, Any]], albums_by_id: dict[int, dic
         for artist in sorted(genres[genre].keys(), key=str.lower):
             albums_out = []
             album_map = genres[genre][artist]
-            # sort albums by year/title via album row when present
-            def album_sort_key(aid: int) -> tuple:
-                alb = albums_by_id.get(aid) or {}
-                return (
-                    alb.get("year") is None,
-                    alb.get("year") or 0,
-                    (alb.get("title") or "").lower(),
-                )
-
-            for album_id in sorted(album_map.keys(), key=album_sort_key):
-                alb = albums_by_id.get(album_id) or {}
-                tracks_in = album_map[album_id]
-                tracks_sorted = sorted(
-                    tracks_in,
-                    key=lambda x: (
-                        x.get("track_num") is None,
-                        x.get("track_num") or 0,
-                        (x.get("title") or "").lower(),
-                    ),
-                )
+            for album_id in sorted(
+                album_map.keys(), key=lambda a: _album_sort_key(albums_by_id, a)
+            ):
                 albums_out.append(
-                    {
-                        "album_id": album_id or None,
-                        "title": alb.get("title")
-                        or (tracks_sorted[0].get("album") if tracks_sorted else UNKNOWN_ALBUM)
-                        or UNKNOWN_ALBUM,
-                        "year": alb.get("year"),
-                        "artist": artist,
-                        "genre": genre,
-                        "tracks": tracks_sorted,
-                    }
+                    _album_node(
+                        album_id,
+                        album_map[album_id],
+                        albums_by_id,
+                        artist=artist,
+                        genre=genre,
+                    )
                 )
             artists_out.append({"artist": artist, "genre": genre, "albums": albums_out})
         tree.append({"genre": genre, "artists": artists_out})

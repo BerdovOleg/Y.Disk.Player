@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS scan_state (
     last_result_json TEXT,
     last_error TEXT
 );
+
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    library_view TEXT NOT NULL DEFAULT 'genre',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 FTS_SCHEMA = """

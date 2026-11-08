@@ -31,6 +31,7 @@
     <div class="auth" id="auth-box">
       <span id="auth-label">…</span>
       <a id="login-btn" class="btn" href="/auth/login">Войти</a>
+      <a id="switch-btn" class="btn btn-ghost hidden" href="/auth/switch" title="Сменить аккаунт Яндекса">Сменить</a>
       <a id="logout-btn" class="btn btn-ghost hidden" href="/auth/logout">Выйти</a>
     </div>
   </header>
@@ -39,10 +40,15 @@
     <section id="view-library" class="view is-visible">
       <div class="section-head">
         <h1>Библиотека</h1>
-        <p>Жанр → исполнитель → альбом → трек</p>
+        <p id="library-view-hint">Жанр → исполнитель → альбом → трек</p>
       </div>
       <p id="disk-banner" class="banner muted hidden"></p>
       <p id="scan-last" class="banner muted hidden"></p>
+      <div class="view-mode-bar" role="group" aria-label="Вид библиотеки">
+        <button type="button" class="view-mode-btn" data-view-mode="genre">Жанр → Артист → Альбом</button>
+        <button type="button" class="view-mode-btn" data-view-mode="artist">Артист → Альбом</button>
+        <button type="button" class="view-mode-btn" data-view-mode="album">Альбом → Трек</button>
+      </div>
       <form id="upload-form" class="toolbar">
         <label class="file-label">
           <span>Загрузить аудио</span>

@@ -5,10 +5,12 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import RedirectResponse
 
 from app.config import (
     ALLOW_DEV_AUTH,
+    COOKIE_SAMESITE,
+    COOKIE_SECURE,
     OAUTH_REDIRECT_URI,
     YANDEX_AUTH_URL,
     YANDEX_CLIENT_ID,
@@ -24,6 +26,19 @@ from app.db import get_db, row_to_dict
 from app.session import clear_session, get_user_id, set_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _oauth_state_cookie(response, state: str) -> None:
+    samesite = COOKIE_SAMESITE if COOKIE_SAMESITE in {"lax", "strict", "none"} else "lax"
+    response.set_cookie(
+        "omt_oauth_state",
+        state,
+        max_age=600,
+        httponly=True,
+        secure=COOKIE_SECURE or samesite == "none",
+        samesite=samesite,
+        path="/",
+    )
 
 
 @router.get("/status")
@@ -104,7 +119,7 @@ async def login():
         params["scope"] = YANDEX_OAUTH_SCOPES
     url = f"{YANDEX_AUTH_URL}?{urlencode(params)}"
     resp = RedirectResponse(url, status_code=302)
-    resp.set_cookie("omt_oauth_state", state, max_age=600, httponly=True, samesite="lax")
+    _oauth_state_cookie(resp, state)
     return resp
 
 
@@ -145,7 +160,8 @@ async def callback(
             },
         )
         if token_resp.status_code >= 400:
-            raise HTTPException(400, f"Token exchange failed: {token_resp.text}")
+            # Never echo OAuth token material — status only
+            raise HTTPException(400, f"Token exchange failed ({token_resp.status_code})")
         token_data = token_resp.json()
         access = token_data.get("access_token")
         if not access:
@@ -157,7 +173,7 @@ async def callback(
             headers={"Authorization": f"OAuth {access}"},
         )
         if info.status_code >= 400:
-            raise HTTPException(400, f"Login info failed: {info.text}")
+            raise HTTPException(400, f"Login info failed ({info.status_code})")
         profile = info.json()
 
     yandex_id = str(profile.get("id") or profile.get("psuid") or "")
@@ -182,6 +198,15 @@ async def callback(
                 (yandex_id, display, enc),
             )
             uid = cur.lastrowid
+        # Ensure per-user prefs row (isolated library view, etc.)
+        pref = db.execute(
+            "SELECT user_id FROM user_preferences WHERE user_id=?", (uid,)
+        ).fetchone()
+        if not pref:
+            db.execute(
+                "INSERT INTO user_preferences (user_id, library_view) VALUES (?, ?)",
+                (uid, "genre"),
+            )
 
     resp = RedirectResponse("/", status_code=302)
     set_session(resp, int(uid))
@@ -225,5 +250,14 @@ async def dev_login():
 @router.get("/logout")
 async def logout():
     resp = RedirectResponse("/", status_code=302)
+    clear_session(resp)
+    return resp
+
+
+@router.get("/switch")
+@router.post("/switch")
+async def switch_account():
+    """Clear current session and force a fresh Yandex login (family account switch)."""
+    resp = RedirectResponse("/auth/login", status_code=302)
     clear_session(resp)
     return resp

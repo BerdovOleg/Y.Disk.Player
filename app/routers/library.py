@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from app.audio_meta import read_tags, safe_segment
-from app.catalog import build_library_tree, upsert_track_from_tags
+from app.catalog import LIBRARY_VIEWS, build_library_tree, upsert_track_from_tags
 from app.deps import require_user, user_token
 from app.disk.client import DiskError, music_path, upload_file
 from app.db import get_db, row_to_dict
@@ -17,9 +17,22 @@ router = APIRouter(prefix="/api", tags=["library"])
 AUDIO_EXT = {".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".wma", ".aiff"}
 
 
+def _user_library_view(user_id: int) -> str:
+    with get_db() as db:
+        row = db.execute(
+            "SELECT library_view FROM user_preferences WHERE user_id=?",
+            (user_id,),
+        ).fetchone()
+    view = (row["library_view"] if row else None) or "genre"
+    return view if view in LIBRARY_VIEWS else "genre"
+
+
 @router.get("/library")
-def list_library(request: Request):
+def list_library(request: Request, view: str | None = None):
     user = require_user(request)
+    mode = (view or "").strip().lower() if view else _user_library_view(user["id"])
+    if mode not in LIBRARY_VIEWS:
+        mode = "genre"
     with get_db() as db:
         albums = db.execute(
             """
@@ -50,7 +63,9 @@ def list_library(request: Request):
     return {
         "albums": album_dicts,
         "tracks": track_dicts,
-        "tree": build_library_tree(track_dicts, albums_by_id),
+        "view": mode,
+        "views": list(LIBRARY_VIEWS),
+        "tree": build_library_tree(track_dicts, albums_by_id, mode=mode),
     }
 
 

@@ -2,10 +2,18 @@
   const authLabel = document.getElementById("auth-label");
   const loginBtn = document.getElementById("login-btn");
   const logoutBtn = document.getElementById("logout-btn");
+  const switchBtn = document.getElementById("switch-btn");
+
+  const VIEW_HINTS = {
+    genre: "Жанр → исполнитель → альбом → трек",
+    artist: "Исполнитель → альбом → трек",
+    album: "Альбом → трек",
+  };
 
   window.OMT = {
     user: null,
     tracks: [],
+    libraryView: "genre",
     onPlay(track) {
       fetch("/api/history", {
         method: "POST",
@@ -110,72 +118,112 @@
     bindFavButtons(el);
   }
 
-  function renderLibraryTree(el, tree, flatTracks) {
+  function renderAlbumBlock(alb, pathAttrs, open) {
+    const tracks = collectAlbumTracks(alb);
+    const year = alb.year ? `${alb.year} · ` : "";
+    const artistBit =
+      window.OMT.libraryView === "album"
+        ? `<span class="muted"> · ${escapeHtml(alb.artist || "")}</span>`
+        : "";
+    return `
+      <details class="tree-node tree-album" ${open ? "open" : ""}>
+        <summary class="tree-summary">
+          <button type="button" class="tree-play" data-queue="album" ${pathAttrs} title="Играть альбом">▶</button>
+          <span class="tree-label">${escapeHtml(year + (alb.title || "Unknown Album"))}${artistBit}</span>
+          <span class="muted tree-count">${tracks.length}</span>
+        </summary>
+        <div class="tree-children track-list">
+          ${tracks.map((t, i) => trackRowHtml(t, i)).join("")}
+        </div>
+      </details>`;
+  }
+
+  function trackRowHtml(t, i) {
+    return `
+      <div class="track ${t.available === 0 ? "is-unavailable" : ""}" data-id="${t.id}" role="button" tabindex="0">
+        <span class="track-num">${t.track_num || i + 1}</span>
+        <div class="track-meta">
+          <div class="track-title">${escapeHtml(t.title)}${t.available === 0 ? " <span class=\"muted\">(нет на Диске)</span>" : ""}</div>
+          <div class="track-sub">${t.duration_sec ? Math.round(t.duration_sec) + "s" : ""}</div>
+        </div>
+        <button type="button" class="fav-btn ${t.is_favorite ? "is-on" : ""}" data-fav="${t.id}" aria-label="Favorite">${t.is_favorite ? "♥" : "♡"}</button>
+      </div>`;
+  }
+
+  function renderLibraryTree(el, tree, flatTracks, mode) {
     if (!tree.length) {
       el.innerHTML = `<p class="muted">Библиотека пуста — загрузите трек или сканируйте Диск</p>`;
       return;
     }
     const byId = Object.fromEntries(flatTracks.map((t) => [t.id, t]));
+    const view = mode || window.OMT.libraryView || "genre";
 
-    function trackRow(t, i) {
-      return `
-        <div class="track ${t.available === 0 ? "is-unavailable" : ""}" data-id="${t.id}" role="button" tabindex="0">
-          <span class="track-num">${t.track_num || i + 1}</span>
-          <div class="track-meta">
-            <div class="track-title">${escapeHtml(t.title)}${t.available === 0 ? " <span class=\"muted\">(нет на Диске)</span>" : ""}</div>
-            <div class="track-sub">${t.duration_sec ? Math.round(t.duration_sec) + "s" : ""}</div>
-          </div>
-          <button type="button" class="fav-btn ${t.is_favorite ? "is-on" : ""}" data-fav="${t.id}" aria-label="Favorite">${t.is_favorite ? "♥" : "♡"}</button>
-        </div>`;
+    if (view === "album") {
+      el.innerHTML = tree
+        .map((alb, ali) => renderAlbumBlock(alb, `data-ali="${ali}"`, ali === 0))
+        .join("");
+    } else if (view === "artist") {
+      el.innerHTML = tree
+        .map((a, ai) => {
+          const aTracks = collectArtistTracks(a);
+          return `
+          <details class="tree-node tree-artist" ${ai === 0 ? "open" : ""}>
+            <summary class="tree-summary">
+              <button type="button" class="tree-play" data-queue="artist" data-ai="${ai}" title="Играть исполнителя">▶</button>
+              <span class="tree-label">${escapeHtml(a.artist)}</span>
+              <span class="muted tree-count">${aTracks.length}</span>
+            </summary>
+            <div class="tree-children">
+              ${(a.albums || [])
+                .map((alb, ali) =>
+                  renderAlbumBlock(alb, `data-ai="${ai}" data-ali="${ali}"`, true)
+                )
+                .join("")}
+            </div>
+          </details>`;
+        })
+        .join("");
+    } else {
+      el.innerHTML = tree
+        .map((g, gi) => {
+          const gTracks = collectGenreTracks(g);
+          return `
+          <details class="tree-node tree-genre" ${gi === 0 ? "open" : ""}>
+            <summary class="tree-summary">
+              <button type="button" class="tree-play" data-queue="genre" data-gi="${gi}" title="Играть жанр">▶</button>
+              <span class="tree-label">${escapeHtml(g.genre)}</span>
+              <span class="muted tree-count">${gTracks.length}</span>
+            </summary>
+            <div class="tree-children">
+              ${(g.artists || [])
+                .map((a, ai) => {
+                  const aTracks = collectArtistTracks(a);
+                  return `
+                  <details class="tree-node tree-artist">
+                    <summary class="tree-summary">
+                      <button type="button" class="tree-play" data-queue="artist" data-gi="${gi}" data-ai="${ai}" title="Играть исполнителя">▶</button>
+                      <span class="tree-label">${escapeHtml(a.artist)}</span>
+                      <span class="muted tree-count">${aTracks.length}</span>
+                    </summary>
+                    <div class="tree-children">
+                      ${(a.albums || [])
+                        .map((alb, ali) =>
+                          renderAlbumBlock(
+                            alb,
+                            `data-gi="${gi}" data-ai="${ai}" data-ali="${ali}"`,
+                            true
+                          )
+                        )
+                        .join("")}
+                    </div>
+                  </details>`;
+                })
+                .join("")}
+            </div>
+          </details>`;
+        })
+        .join("");
     }
-
-    el.innerHTML = tree
-      .map((g, gi) => {
-        const gTracks = collectGenreTracks(g);
-        return `
-        <details class="tree-node tree-genre" ${gi === 0 ? "open" : ""}>
-          <summary class="tree-summary">
-            <button type="button" class="tree-play" data-queue="genre" data-gi="${gi}" title="Играть жанр">▶</button>
-            <span class="tree-label">${escapeHtml(g.genre)}</span>
-            <span class="muted tree-count">${gTracks.length}</span>
-          </summary>
-          <div class="tree-children">
-            ${(g.artists || [])
-              .map((a, ai) => {
-                const aTracks = collectArtistTracks(a);
-                return `
-                <details class="tree-node tree-artist">
-                  <summary class="tree-summary">
-                    <button type="button" class="tree-play" data-queue="artist" data-gi="${gi}" data-ai="${ai}" title="Играть исполнителя">▶</button>
-                    <span class="tree-label">${escapeHtml(a.artist)}</span>
-                    <span class="muted tree-count">${aTracks.length}</span>
-                  </summary>
-                  <div class="tree-children">
-                    ${(a.albums || [])
-                      .map((alb, ali) => {
-                        const tracks = collectAlbumTracks(alb);
-                        const year = alb.year ? `${alb.year} · ` : "";
-                        return `
-                        <details class="tree-node tree-album" open>
-                          <summary class="tree-summary">
-                            <button type="button" class="tree-play" data-queue="album" data-gi="${gi}" data-ai="${ai}" data-ali="${ali}" title="Играть альбом">▶</button>
-                            <span class="tree-label">${escapeHtml(year + (alb.title || "Unknown Album"))}</span>
-                            <span class="muted tree-count">${tracks.length}</span>
-                          </summary>
-                          <div class="tree-children track-list">
-                            ${tracks.map((t, i) => trackRow(t, i)).join("")}
-                          </div>
-                        </details>`;
-                      })
-                      .join("")}
-                  </div>
-                </details>`;
-              })
-              .join("")}
-          </div>
-        </details>`;
-      })
-      .join("");
 
     el.querySelectorAll(".tree-play").forEach((btn) => {
       btn.addEventListener("click", (e) => {
@@ -184,12 +232,19 @@
         const gi = Number(btn.dataset.gi);
         const ai = Number(btn.dataset.ai);
         const ali = Number(btn.dataset.ali);
-        const g = tree[gi];
         let queue = [];
-        if (btn.dataset.queue === "genre") queue = collectGenreTracks(g);
-        else if (btn.dataset.queue === "artist") queue = collectArtistTracks(g.artists[ai]);
-        else if (btn.dataset.queue === "album")
-          queue = collectAlbumTracks(g.artists[ai].albums[ali]);
+        if (view === "album") {
+          queue = collectAlbumTracks(tree[ali]);
+        } else if (view === "artist") {
+          const a = tree[ai];
+          if (btn.dataset.queue === "artist") queue = collectArtistTracks(a);
+          else queue = collectAlbumTracks(a.albums[ali]);
+        } else {
+          const g = tree[gi];
+          if (btn.dataset.queue === "genre") queue = collectGenreTracks(g);
+          else if (btn.dataset.queue === "artist") queue = collectArtistTracks(g.artists[ai]);
+          else queue = collectAlbumTracks(g.artists[ai].albums[ali]);
+        }
         queue = queue.map((t) => byId[t.id] || t).filter(Boolean);
         if (queue.length) window.OMTPlayer.setQueue(queue, queue[0].id);
       });
@@ -211,6 +266,38 @@
     bindFavButtons(el);
   }
 
+  function syncViewModeButtons(mode) {
+    document.querySelectorAll(".view-mode-btn").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.viewMode === mode);
+    });
+    const hint = document.getElementById("library-view-hint");
+    if (hint) hint.textContent = VIEW_HINTS[mode] || VIEW_HINTS.genre;
+  }
+
+  document.querySelectorAll(".view-mode-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const mode = btn.dataset.viewMode;
+      if (!mode || mode === window.OMT.libraryView) return;
+      try {
+        await api("/api/preferences", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ library_view: mode }),
+        });
+        try {
+          localStorage.setItem("omt_library_view", mode);
+        } catch (_) {
+          /* ignore */
+        }
+        window.OMT.libraryView = mode;
+        syncViewModeButtons(mode);
+        await loadLibrary();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
   function escapeHtml(s) {
     return String(s || "")
       .replace(/&/g, "&amp;")
@@ -227,6 +314,7 @@
       authLabel.textContent = st.user.display_name || "User";
       loginBtn.classList.add("hidden");
       logoutBtn.classList.remove("hidden");
+      if (switchBtn) switchBtn.classList.remove("hidden");
       if (st.disk_ok === false) {
         banner.classList.remove("hidden");
         banner.innerHTML =
@@ -246,6 +334,7 @@
       loginBtn.href = st.dev_auth_available ? "/auth/dev-login" : "/auth/login";
       loginBtn.textContent = st.dev_auth_available ? "Dev-вход" : "Войти";
       logoutBtn.classList.add("hidden");
+      if (switchBtn) switchBtn.classList.add("hidden");
       banner.classList.add("hidden");
     }
     return st;
@@ -257,7 +346,9 @@
       const data = await api("/api/library");
       window.OMT.tracks = data.tracks;
       window.OMT.tree = data.tree || [];
-      renderLibraryTree(el, window.OMT.tree, data.tracks);
+      window.OMT.libraryView = data.view || "genre";
+      syncViewModeButtons(window.OMT.libraryView);
+      renderLibraryTree(el, window.OMT.tree, data.tracks, window.OMT.libraryView);
     } catch (err) {
       el.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
     }

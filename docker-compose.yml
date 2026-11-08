@@ -1,0 +1,39 @@
+services:
+  onemoretime:
+    build: .
+    image: onemoretime:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: production
+      ALLOW_DEV_AUTH: "0"
+      COOKIE_SECURE: "1"
+      COOKIE_SAMESITE: lax
+      DATABASE_PATH: /data/onemoretime.db
+      TORRENT_DOWNLOAD_DIR: /data/torrents
+      TRACK_CACHE_DIR: /data/cache/tracks
+      # Set these in .env for your public host:
+      # OAUTH_REDIRECT_URI=https://music.example.com/auth/callback
+      # TRUSTED_ORIGINS=https://music.example.com
+      # SESSION_SECRET=...
+      # FERNET_KEY=...
+    volumes:
+      - omt-data:/data
+    # Bound to loopback for host nginx. Do not publish 0.0.0.0:8000 on a VPS.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  # Optional edge reverse proxy. Prefer host nginx + certbot on Ubuntu VPS.
+  # nginx:
+  #   image: nginx:1.27-alpine
+  #   depends_on: [onemoretime]
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - /etc/letsencrypt:/etc/letsencrypt:ro
+
+volumes:
+  omt-data:

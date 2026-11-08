@@ -10,6 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.config import (
     DISK_SCAN_INTERVAL_HOURS,
+    ENVIRONMENT,
+    IS_PROD,
     STATIC_DIR,
     TORRENT_DOWNLOAD_DIR,
     TRACK_CACHE_DIR,
@@ -22,11 +24,13 @@ from app.routers import (
     history,
     library,
     playlists,
+    preferences,
     search,
     stream,
     torrent,
 )
 from app.scan_scheduler import start_scheduler, stop_scheduler
+from app.security import SecurityMiddleware
 from app.torrent.worker import get_worker
 
 
@@ -45,9 +49,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="OneMoreTime", version=__version__, lifespan=lifespan)
+app.add_middleware(SecurityMiddleware)
 
 app.include_router(auth.router)
 app.include_router(library.router)
+app.include_router(preferences.router)
 app.include_router(search.router)
 app.include_router(playlists.router)
 app.include_router(stream.router)
@@ -62,6 +68,8 @@ def health():
     return {
         "ok": True,
         "version": __version__,
+        "environment": ENVIRONMENT,
+        "prod": IS_PROD,
         "libtorrent": lt,
         "disk_scan_interval_hours": DISK_SCAN_INTERVAL_HOURS,
         "cache": cache_stats(),

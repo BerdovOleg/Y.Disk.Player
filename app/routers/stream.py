@@ -14,6 +14,7 @@ from app.deps import require_user, user_token
 from app.disk.client import DiskError, get_download_href
 from app.db import get_db, row_to_dict
 from app.hot_cache import cache_stats, get_cached, put_from_path
+from app.http_util import async_client, is_network_io_failure
 
 router = APIRouter(prefix="/api", tags=["stream"])
 log = logging.getLogger("omt.stream")
@@ -115,12 +116,38 @@ async def stream_track(track_id: int, request: Request):
     if range_header:
         upstream_headers["Range"] = range_header
 
-    client = httpx.AsyncClient(timeout=None, follow_redirects=True)
+    client = async_client(timeout=None, follow_redirects=True)
     try:
-        upstream = await client.send(
-            client.build_request("GET", href, headers=upstream_headers),
-            stream=True,
-        )
+        try:
+            upstream = await client.send(
+                client.build_request("GET", href, headers=upstream_headers),
+                stream=True,
+            )
+        except (httpx.HTTPError, OSError) as exc:
+            if not is_network_io_failure(exc):
+                await client.aclose()
+                raise HTTPException(502, f"Upstream stream failed: {exc}") from exc
+            # One retry with a fresh IPv4 client + refreshed href
+            await client.aclose()
+            try:
+                href = await get_download_href(token, track["disk_path"])
+            except DiskError as disk_exc:
+                raise HTTPException(
+                    disk_exc.status or 502, str(disk_exc)
+                ) from disk_exc
+            client = async_client(timeout=None, follow_redirects=True)
+            try:
+                upstream = await client.send(
+                    client.build_request("GET", href, headers=upstream_headers),
+                    stream=True,
+                )
+            except Exception as retry_exc:
+                await client.aclose()
+                raise HTTPException(
+                    502, f"Upstream stream failed: {retry_exc}"
+                ) from retry_exc
+    except HTTPException:
+        raise
     except Exception as exc:
         await client.aclose()
         raise HTTPException(502, f"Upstream stream failed: {exc}") from exc

@@ -9,6 +9,7 @@ from urllib.parse import quote
 import httpx
 
 from app.config import DISK_ROOT, YANDEX_DISK_API
+from app.http_util import async_client, is_network_io_failure
 
 
 class DiskError(Exception):
@@ -61,7 +62,7 @@ async def ensure_folder(token: str, path: str) -> None:
     path = _norm_path(path)
     segments = path.strip("/").split("/")
     current = ""
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with async_client(timeout=60.0) as client:
         for seg in segments:
             current = f"{current}/{seg}"
             r = await client.put(
@@ -89,7 +90,7 @@ async def upload_file(
     parent = "/".join(remote_path.split("/")[:-1]) or "/"
     await ensure_folder(token, parent)
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with async_client(timeout=120.0) as client:
         r = await client.get(
             f"{YANDEX_DISK_API}/resources/upload",
             params={"path": remote_path, "overwrite": str(overwrite).lower()},
@@ -111,7 +112,7 @@ async def upload_file(
 
 async def get_download_href(token: str, remote_path: str) -> str:
     remote_path = _norm_path(remote_path)
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with async_client(timeout=60.0) as client:
         r = await client.get(
             f"{YANDEX_DISK_API}/resources/download",
             params={"path": remote_path},
@@ -132,7 +133,7 @@ async def get_download_href(token: str, remote_path: str) -> str:
 
 async def get_meta(token: str, remote_path: str) -> dict[str, Any]:
     remote_path = _norm_path(remote_path)
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with async_client(timeout=60.0) as client:
         r = await client.get(
             f"{YANDEX_DISK_API}/resources",
             params={"path": remote_path},
@@ -154,7 +155,7 @@ async def iter_files(
     """Yield file/dir resource dicts under root (recursive for directories)."""
     root = _norm_path(root)
     stack = [root]
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with async_client(timeout=60.0) as client:
         while stack:
             current = stack.pop()
             offset = 0
@@ -199,10 +200,8 @@ async def iter_files(
                     break
 
 
-async def download_to_path(token: str, remote_path: str, dest: Path) -> Path:
-    href = await get_download_href(token, remote_path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
+async def _stream_download(href: str, dest: Path) -> None:
+    async with async_client(timeout=None, follow_redirects=True) as client:
         async with client.stream("GET", href) as r:
             if r.status_code >= 400:
                 body = await r.aread()
@@ -213,7 +212,27 @@ async def download_to_path(token: str, remote_path: str, dest: Path) -> Path:
             with dest.open("wb") as out:
                 async for chunk in r.aiter_bytes(256 * 1024):
                     out.write(chunk)
-    return dest
+
+
+async def download_to_path(token: str, remote_path: str, dest: Path) -> Path:
+    href = await get_download_href(token, remote_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    last_exc: BaseException | None = None
+    for attempt in range(2):
+        try:
+            await _stream_download(href, dest)
+            return dest
+        except DiskError:
+            raise
+        except (httpx.HTTPError, OSError) as exc:
+            last_exc = exc
+            dest.unlink(missing_ok=True)
+            if attempt == 0 and is_network_io_failure(exc):
+                # Refresh href and retry once (IPv4 transport already preferred)
+                href = await get_download_href(token, remote_path)
+                continue
+            raise DiskError(f"download failed: {exc}") from exc
+    raise DiskError(f"download failed: {last_exc}")
 
 
 def encode_disk_path(path: str) -> str:

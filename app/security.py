@@ -120,6 +120,9 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             response.headers.setdefault(
                 "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
             )
-        # Never expose server token material
-        response.headers.pop("X-Powered-By", None)
+        # Never expose server token material (MutableHeaders has no .pop)
+        try:
+            del response.headers["X-Powered-By"]
+        except KeyError:
+            pass
         return response

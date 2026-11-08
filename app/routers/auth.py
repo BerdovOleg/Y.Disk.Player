@@ -23,6 +23,7 @@ from app.config import (
 )
 from app.crypto_util import decrypt_token, encrypt_token
 from app.db import get_db, row_to_dict
+from app.http_util import async_client
 from app.session import clear_session, get_user_id, set_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -69,7 +70,7 @@ async def auth_status(request: Request):
                             disk_ok = False
                             disk_error = "dev stub token"
                         else:
-                            async with httpx.AsyncClient(timeout=15.0) as client:
+                            async with async_client(timeout=15.0) as client:
                                 r = await client.get(
                                     YANDEX_DISK_API,
                                     headers={"Authorization": f"OAuth {token}"},
@@ -149,7 +150,7 @@ async def callback(
     if expected and state and expected != state:
         raise HTTPException(400, "Invalid OAuth state")
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with async_client(timeout=30.0) as client:
         token_resp = await client.post(
             YANDEX_TOKEN_URL,
             data={

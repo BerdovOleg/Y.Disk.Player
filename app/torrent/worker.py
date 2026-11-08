@@ -10,12 +10,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.audio_meta import read_tags, safe_segment
+from app.audio_meta import read_tags
 from app.catalog import upsert_track_from_tags
 from app.config import TORRENT_DOWNLOAD_DIR
 from app.crypto_util import decrypt_token
 from app.db import get_db, row_to_dict
-from app.disk.client import music_path, upload_file
+from app.disk.client import disk_path_preserve_rel, upload_file
 
 log = logging.getLogger("omt.torrent")
 
@@ -320,13 +320,8 @@ class TorrentWorker:
                 if local.suffix.lower() not in AUDIO_EXT:
                     continue
                 tags = read_tags(local)
-                artist = safe_segment(tags["artist"])
-                album = safe_segment(tags["album"])
-                year = tags["year"]
-                year_part = f"{year} - " if year else ""
-                remote = music_path(
-                    artist, f"{year_part}{album}", safe_segment(local.name)
-                )
+                # Keep torrent relative folder layout under DISK_ROOT (no flatten)
+                remote = disk_path_preserve_rel(rel)
                 await upload_file(token, local, remote)
                 upsert_track_from_tags(job["user_id"], tags, remote)
                 uploaded += 1

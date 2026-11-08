@@ -37,6 +37,25 @@ def music_path(*parts: str) -> str:
     return "/" + "/".join(clean)
 
 
+def disk_path_preserve_rel(rel: str) -> str:
+    """
+    Map a torrent-relative path under DISK_ROOT, keeping folder layout.
+    Sanitizes each segment; rejects '..'.
+    """
+    from app.audio_meta import safe_segment
+
+    raw = str(rel).replace("\\", "/").strip("/")
+    parts: list[str] = []
+    for seg in raw.split("/"):
+        seg = seg.strip()
+        if not seg or seg in {".", ".."}:
+            continue
+        parts.append(safe_segment(seg, "file"))
+    if not parts:
+        parts = ["unknown.bin"]
+    return music_path(*parts)
+
+
 async def ensure_folder(token: str, path: str) -> None:
     """Create folder and parents on Disk (idempotent)."""
     path = _norm_path(path)

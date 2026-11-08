@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from app.audio_meta import read_tags, safe_segment
-from app.catalog import upsert_track_from_tags
+from app.catalog import build_library_tree, upsert_track_from_tags
 from app.deps import require_user, user_token
 from app.disk.client import DiskError, music_path, upload_file
 from app.disk.scanner import scan_disk_library
@@ -34,16 +34,23 @@ def list_library(request: Request):
         tracks = db.execute(
             """
             SELECT t.*,
+                   a.title AS album_title,
                    EXISTS(SELECT 1 FROM favorites f WHERE f.user_id=? AND f.track_id=t.id) AS is_favorite
             FROM tracks t
+            LEFT JOIN albums a ON a.id = t.album_id
             WHERE t.user_id = ?
-            ORDER BY t.artist COLLATE NOCASE, t.album_id, t.track_num, t.title COLLATE NOCASE
+            ORDER BY t.genre COLLATE NOCASE, t.artist COLLATE NOCASE, t.album_id,
+                     t.track_num, t.title COLLATE NOCASE
             """,
             (user["id"], user["id"]),
         ).fetchall()
+    album_dicts = [dict(a) for a in albums]
+    track_dicts = [dict(t) for t in tracks]
+    albums_by_id = {a["id"]: a for a in album_dicts}
     return {
-        "albums": [dict(a) for a in albums],
-        "tracks": [dict(t) for t in tracks],
+        "albums": album_dicts,
+        "tracks": track_dicts,
+        "tree": build_library_tree(track_dicts, albums_by_id),
     }
 
 

@@ -45,6 +45,36 @@
     return res.text();
   }
 
+  function collectAlbumTracks(album) {
+    return (album.tracks || []).slice();
+  }
+  function collectArtistTracks(artist) {
+    return (artist.albums || []).flatMap(collectAlbumTracks);
+  }
+  function collectGenreTracks(genre) {
+    return (genre.artists || []).flatMap(collectArtistTracks);
+  }
+
+  function bindFavButtons(root) {
+    root.querySelectorAll(".fav-btn").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const id = Number(btn.dataset.fav);
+        const on = btn.classList.contains("is-on");
+        try {
+          if (on) await api(`/api/favorites/${id}`, { method: "DELETE" });
+          else await api(`/api/favorites/${id}`, { method: "POST" });
+          btn.classList.toggle("is-on", !on);
+          btn.textContent = !on ? "♥" : "♡";
+          const t = window.OMT.tracks.find((x) => x.id === id);
+          if (t) t.is_favorite = !on ? 1 : 0;
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  }
+
   function renderTracks(el, tracks, opts = {}) {
     if (!tracks.length) {
       el.innerHTML = `<p class="muted">${opts.empty || "Пусто"}</p>`;
@@ -72,23 +102,108 @@
         window.OMTPlayer.setQueue(tracks, id);
       });
     });
-    el.querySelectorAll(".fav-btn").forEach((btn) => {
-      btn.addEventListener("click", async (e) => {
+    bindFavButtons(el);
+  }
+
+  function renderLibraryTree(el, tree, flatTracks) {
+    if (!tree.length) {
+      el.innerHTML = `<p class="muted">Библиотека пуста — загрузите трек или сканируйте Диск</p>`;
+      return;
+    }
+    const byId = Object.fromEntries(flatTracks.map((t) => [t.id, t]));
+
+    function trackRow(t, i) {
+      return `
+        <div class="track ${t.available === 0 ? "is-unavailable" : ""}" data-id="${t.id}" role="button" tabindex="0">
+          <span class="track-num">${t.track_num || i + 1}</span>
+          <div class="track-meta">
+            <div class="track-title">${escapeHtml(t.title)}${t.available === 0 ? " <span class=\"muted\">(нет на Диске)</span>" : ""}</div>
+            <div class="track-sub">${t.duration_sec ? Math.round(t.duration_sec) + "s" : ""}</div>
+          </div>
+          <button type="button" class="fav-btn ${t.is_favorite ? "is-on" : ""}" data-fav="${t.id}" aria-label="Favorite">${t.is_favorite ? "♥" : "♡"}</button>
+        </div>`;
+    }
+
+    el.innerHTML = tree
+      .map((g, gi) => {
+        const gTracks = collectGenreTracks(g);
+        return `
+        <details class="tree-node tree-genre" ${gi === 0 ? "open" : ""}>
+          <summary class="tree-summary">
+            <button type="button" class="tree-play" data-queue="genre" data-gi="${gi}" title="Играть жанр">▶</button>
+            <span class="tree-label">${escapeHtml(g.genre)}</span>
+            <span class="muted tree-count">${gTracks.length}</span>
+          </summary>
+          <div class="tree-children">
+            ${(g.artists || [])
+              .map((a, ai) => {
+                const aTracks = collectArtistTracks(a);
+                return `
+                <details class="tree-node tree-artist">
+                  <summary class="tree-summary">
+                    <button type="button" class="tree-play" data-queue="artist" data-gi="${gi}" data-ai="${ai}" title="Играть исполнителя">▶</button>
+                    <span class="tree-label">${escapeHtml(a.artist)}</span>
+                    <span class="muted tree-count">${aTracks.length}</span>
+                  </summary>
+                  <div class="tree-children">
+                    ${(a.albums || [])
+                      .map((alb, ali) => {
+                        const tracks = collectAlbumTracks(alb);
+                        const year = alb.year ? `${alb.year} · ` : "";
+                        return `
+                        <details class="tree-node tree-album" open>
+                          <summary class="tree-summary">
+                            <button type="button" class="tree-play" data-queue="album" data-gi="${gi}" data-ai="${ai}" data-ali="${ali}" title="Играть альбом">▶</button>
+                            <span class="tree-label">${escapeHtml(year + (alb.title || "Unknown Album"))}</span>
+                            <span class="muted tree-count">${tracks.length}</span>
+                          </summary>
+                          <div class="tree-children track-list">
+                            ${tracks.map((t, i) => trackRow(t, i)).join("")}
+                          </div>
+                        </details>`;
+                      })
+                      .join("")}
+                  </div>
+                </details>`;
+              })
+              .join("")}
+          </div>
+        </details>`;
+      })
+      .join("");
+
+    el.querySelectorAll(".tree-play").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
         e.stopPropagation();
-        const id = Number(btn.dataset.fav);
-        const on = btn.classList.contains("is-on");
-        try {
-          if (on) await api(`/api/favorites/${id}`, { method: "DELETE" });
-          else await api(`/api/favorites/${id}`, { method: "POST" });
-          btn.classList.toggle("is-on", !on);
-          btn.textContent = !on ? "♥" : "♡";
-          const t = window.OMT.tracks.find((x) => x.id === id);
-          if (t) t.is_favorite = !on ? 1 : 0;
-        } catch (err) {
-          alert(err.message);
-        }
+        const gi = Number(btn.dataset.gi);
+        const ai = Number(btn.dataset.ai);
+        const ali = Number(btn.dataset.ali);
+        const g = tree[gi];
+        let queue = [];
+        if (btn.dataset.queue === "genre") queue = collectGenreTracks(g);
+        else if (btn.dataset.queue === "artist") queue = collectArtistTracks(g.artists[ai]);
+        else if (btn.dataset.queue === "album")
+          queue = collectAlbumTracks(g.artists[ai].albums[ali]);
+        queue = queue.map((t) => byId[t.id] || t).filter(Boolean);
+        if (queue.length) window.OMTPlayer.setQueue(queue, queue[0].id);
       });
     });
+
+    el.querySelectorAll(".track").forEach((row) => {
+      row.addEventListener("click", (e) => {
+        if (e.target.closest(".fav-btn")) return;
+        const id = Number(row.dataset.id);
+        const albumEl = row.closest(".tree-album");
+        let queue = flatTracks;
+        if (albumEl) {
+          const ids = [...albumEl.querySelectorAll(".track")].map((n) => Number(n.dataset.id));
+          queue = ids.map((i) => byId[i]).filter(Boolean);
+        }
+        window.OMTPlayer.setQueue(queue, id);
+      });
+    });
+    bindFavButtons(el);
   }
 
   function escapeHtml(s) {
@@ -136,9 +251,8 @@
     try {
       const data = await api("/api/library");
       window.OMT.tracks = data.tracks;
-      renderTracks(el, data.tracks, {
-        empty: "Библиотека пуста — загрузите трек или сканируйте Диск",
-      });
+      window.OMT.tree = data.tree || [];
+      renderLibraryTree(el, window.OMT.tree, data.tracks);
     } catch (err) {
       el.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
     }

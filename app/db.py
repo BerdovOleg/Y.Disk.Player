@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     album_id INTEGER REFERENCES albums(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     artist TEXT NOT NULL DEFAULT 'Unknown Artist',
+    genre TEXT NOT NULL DEFAULT 'Без жанра',
     duration_sec REAL,
     track_num INTEGER,
     mime TEXT,
@@ -102,6 +103,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "available" not in cols:
         conn.execute(
             "ALTER TABLE tracks ADD COLUMN available INTEGER NOT NULL DEFAULT 1"
+        )
+    if "genre" not in cols:
+        conn.execute(
+            "ALTER TABLE tracks ADD COLUMN genre TEXT NOT NULL DEFAULT 'Без жанра'"
         )
 
 

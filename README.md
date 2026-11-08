@@ -50,7 +50,21 @@ See `.env.example`:
 5. Player: play/pause, seek, rate, repeat, shuffle, queue
 6. Favorites + history
 7. Torrent: magnet/.torrent → file list → legal confirm → libtorrent → Disk → wipe tmp
-8. [Legal sources](/legal) + disclaimer
+8. Playlists, FTS5 search, scheduled Disk scan, hot stream cache
+9. [Legal sources](/legal) + disclaimer
+
+### Post-MVP APIs
+
+| Endpoint | Use |
+|----------|-----|
+| `GET/POST /api/playlists` | List / create playlists |
+| `GET/PATCH/DELETE /api/playlists/{id}` | Get / rename / delete |
+| `POST/PUT/DELETE /api/playlists/{id}/tracks` | Add / reorder / remove tracks |
+| `GET /api/search?q=` | FTS5 search (title/artist/album/genre) |
+| `GET /api/library/scan/status` | Last / scheduled scan status |
+| `GET /api/cache/status` | Hot stream cache stats |
+
+Env: `DISK_SCAN_INTERVAL_HOURS` (default 6, `0`=off), `TRACK_CACHE_DIR`, `TRACK_CACHE_TTL_HOURS`, `TRACK_CACHE_MAX_BYTES`.
 
 ## libtorrent
 

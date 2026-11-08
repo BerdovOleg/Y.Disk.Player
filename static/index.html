@@ -15,6 +15,7 @@
     <a class="brand" href="/">OneMoreTime</a>
     <nav class="nav">
       <button type="button" data-view="library" class="nav-btn is-active">Библиотека</button>
+      <button type="button" data-view="playlists" class="nav-btn">Плейлисты</button>
       <button type="button" data-view="favorites" class="nav-btn">Избранное</button>
       <button type="button" data-view="history" class="nav-btn">История</button>
       <button type="button" data-view="import" class="nav-btn">Импорт</button>
@@ -34,16 +35,35 @@
         <p>Жанр → исполнитель → альбом → трек</p>
       </div>
       <p id="disk-banner" class="banner muted hidden"></p>
+      <p id="scan-last" class="banner muted hidden"></p>
       <form id="upload-form" class="upload-bar">
         <label class="file-label">
           <span>Загрузить аудио</span>
           <input type="file" id="upload-input" accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" />
         </label>
         <button type="button" class="btn btn-ghost" id="scan-btn">Сканировать Диск</button>
+        <label class="search-label">
+          <span class="sr-only">Поиск</span>
+          <input type="search" id="library-search" placeholder="Поиск: название, артист, альбом, жанр…" autocomplete="off" />
+        </label>
         <span id="upload-status" class="muted"></span>
         <span id="scan-status" class="muted"></span>
       </form>
+      <div id="search-results" class="search-results hidden"></div>
       <div id="library-list" class="track-list"></div>
+    </section>
+
+    <section id="view-playlists" class="view">
+      <div class="section-head">
+        <h1>Плейлисты</h1>
+        <p>Создавайте очереди и запускайте целиком</p>
+      </div>
+      <form id="playlist-create" class="upload-bar">
+        <input type="text" id="playlist-title" placeholder="Название плейлиста" />
+        <button type="submit" class="btn">Создать</button>
+      </form>
+      <div id="playlists-list" class="jobs"></div>
+      <div id="playlist-detail" class="import-job hidden"></div>
     </section>
 
     <section id="view-favorites" class="view">

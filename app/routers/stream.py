@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from pathlib import Path
+
 import httpx
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.deps import require_user, user_token
-from app.disk.client import DiskError, get_download_href
+from app.disk.client import DiskError, download_to_path, get_download_href
 from app.db import get_db, row_to_dict
+from app.hot_cache import cache_stats, get_cached, put_from_path
 
 router = APIRouter(prefix="/api", tags=["stream"])
+log = logging.getLogger("omt.stream")
 
 _MIME_FIX = {
     "audio/mp3": "audio/mpeg",
@@ -22,6 +28,48 @@ def _normalize_mime(mime: str | None) -> str:
     if not mime:
         return "audio/mpeg"
     return _MIME_FIX.get(mime.lower(), mime)
+
+
+def _ext_for_track(track: dict) -> str:
+    path = track.get("disk_path") or ""
+    suffix = Path(path).suffix.lower()
+    if suffix:
+        return suffix
+    mime = (track.get("mime") or "").lower()
+    if "flac" in mime:
+        return ".flac"
+    if "mpeg" in mime or "mp3" in mime:
+        return ".mp3"
+    if "mp4" in mime or "m4a" in mime:
+        return ".m4a"
+    return ".bin"
+
+
+async def _populate_cache(user_id: int, track: dict, token: str) -> None:
+    try:
+        ext = _ext_for_track(track)
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            await download_to_path(token, track["disk_path"], tmp_path)
+            await put_from_path(
+                user_id,
+                int(track["id"]),
+                tmp_path,
+                mime=track.get("mime"),
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+    except Exception:
+        log.exception("cache populate failed track=%s", track.get("id"))
+
+
+@router.get("/cache/status")
+def stream_cache_status(request: Request):
+    require_user(request)
+    return cache_stats()
 
 
 @router.get("/stream/{track_id}")
@@ -40,7 +88,21 @@ async def stream_track(track_id: int, request: Request):
     if track.get("available") == 0:
         raise HTTPException(410, "Track file missing on Disk — run library scan")
 
-    # Dev stub token cannot hit real Disk
+    # Dev stub token cannot hit real Disk (cache may still serve)
+    cached = get_cached(user["id"], track_id)
+    if cached is not None:
+        media_type = _normalize_mime(track.get("mime"))
+        return FileResponse(
+            path=str(cached),
+            media_type=media_type,
+            filename=Path(track["disk_path"]).name,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "private, max-age=0, no-transform",
+                "X-OMT-Cache": "HIT",
+            },
+        )
+
     if token.startswith("dev-stub"):
         raise HTTPException(
             503,
@@ -57,6 +119,9 @@ async def stream_track(track_id: int, request: Request):
                 "with cloud_api:disk.read / disk.write scopes"
             )
         raise HTTPException(exc.status or 502, detail) from exc
+
+    # Populate hot cache in background for next hit
+    asyncio.create_task(_populate_cache(user["id"], track, token))
 
     range_header = request.headers.get("range")
     upstream_headers: dict[str, str] = {
@@ -91,11 +156,11 @@ async def stream_track(track_id: int, request: Request):
         "Accept-Ranges": "bytes",
         "Cache-Control": "private, max-age=0, no-transform",
         "Content-Type": media_type,
+        "X-OMT-Cache": "MISS",
     }
     for key in ("Content-Length", "Content-Range"):
         if key in upstream.headers:
             out_headers[key] = upstream.headers[key]
-    # Prefer upstream media type when it looks like audio/*
     up_ct = upstream.headers.get("content-type")
     if up_ct and up_ct.lower().startswith("audio/"):
         out_headers["Content-Type"] = _normalize_mime(up_ct.split(";")[0].strip())

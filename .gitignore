@@ -20,9 +20,10 @@ data/*.db-*
 .vscode/
 *.swp
 
-# Torrent / downloads temp
+# Torrent / downloads temp / stream cache
 data/torrents/
 data/tmp/
+data/cache/
 *.torrent
 
 # Secrets

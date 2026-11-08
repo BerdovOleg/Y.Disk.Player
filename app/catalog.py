@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from app.audio_meta import UNKNOWN_ALBUM, UNKNOWN_ARTIST, UNKNOWN_GENRE, safe_segment
-from app.db import get_db, row_to_dict
+from app.db import get_db, row_to_dict, sync_track_fts
 from app.disk.client import music_path
 
 
@@ -91,6 +91,17 @@ def upsert_track_from_tags(
                 (user_id, *fields, remote),
             )
             track_id = cur.lastrowid
+
+        title = tags.get("title") or Path(remote).stem
+        sync_track_fts(
+            db,
+            int(track_id),
+            title=title,
+            artist=artist,
+            album=album,
+            genre=genre,
+            user_id=user_id,
+        )
 
         return row_to_dict(
             db.execute("SELECT * FROM tracks WHERE id=?", (track_id,)).fetchone()

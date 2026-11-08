@@ -29,6 +29,16 @@ ALLOW_DEV_AUTH = _bool("ALLOW_DEV_AUTH", default=not bool(YANDEX_CLIENT_ID))
 TORRENT_DOWNLOAD_DIR = Path(
     os.getenv("TORRENT_DOWNLOAD_DIR", str(ROOT / "data" / "torrents"))
 )
+# Background Disk rescan interval (hours). 0 disables the scheduler.
+DISK_SCAN_INTERVAL_HOURS = float(os.getenv("DISK_SCAN_INTERVAL_HOURS", "6") or "6")
+# Hot stream cache for frequently played tracks
+TRACK_CACHE_DIR = Path(
+    os.getenv("TRACK_CACHE_DIR", str(ROOT / "data" / "cache" / "tracks"))
+)
+TRACK_CACHE_TTL_HOURS = float(os.getenv("TRACK_CACHE_TTL_HOURS", "24") or "24")
+TRACK_CACHE_MAX_BYTES = int(
+    os.getenv("TRACK_CACHE_MAX_BYTES", str(2 * 1024 * 1024 * 1024)) or str(2 * 1024 * 1024 * 1024)
+)
 STATIC_DIR = ROOT / "static"
 COOKIE_NAME = "omt_session"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days

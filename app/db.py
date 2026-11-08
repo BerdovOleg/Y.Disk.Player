@@ -86,6 +86,47 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_import_jobs_user
     ON import_jobs(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS playlists (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_playlists_user
+    ON playlists(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS playlist_tracks (
+    playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+    track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (playlist_id, track_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_playlist_tracks_order
+    ON playlist_tracks(playlist_id, position);
+
+CREATE TABLE IF NOT EXISTS scan_state (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    last_started_at TEXT,
+    last_finished_at TEXT,
+    last_status TEXT,
+    last_result_json TEXT,
+    last_error TEXT
+);
+"""
+
+FTS_SCHEMA = """
+CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
+    title,
+    artist,
+    album,
+    genre,
+    user_id UNINDEXED,
+    tokenize = 'unicode61'
+);
 """
 
 
@@ -110,11 +151,67 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
 
 
+def _ensure_fts(conn: sqlite3.Connection) -> None:
+    conn.executescript(FTS_SCHEMA)
+    # Rebuild if empty but tracks exist
+    fts_count = conn.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0]
+    track_count = conn.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+    if track_count and not fts_count:
+        _rebuild_fts(conn)
+
+
+def _rebuild_fts(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM tracks_fts")
+    rows = conn.execute(
+        """
+        SELECT t.id, t.title, t.artist, t.genre, t.user_id,
+               COALESCE(a.title, '') AS album
+        FROM tracks t
+        LEFT JOIN albums a ON a.id = t.album_id
+        """
+    ).fetchall()
+    conn.executemany(
+        """
+        INSERT INTO tracks_fts(rowid, title, artist, album, genre, user_id)
+        VALUES (?,?,?,?,?,?)
+        """,
+        [
+            (r["id"], r["title"], r["artist"], r["album"], r["genre"], r["user_id"])
+            for r in rows
+        ],
+    )
+
+
+def sync_track_fts(
+    conn: sqlite3.Connection,
+    track_id: int,
+    *,
+    title: str,
+    artist: str,
+    album: str,
+    genre: str,
+    user_id: int,
+) -> None:
+    conn.execute("DELETE FROM tracks_fts WHERE rowid=?", (track_id,))
+    conn.execute(
+        """
+        INSERT INTO tracks_fts(rowid, title, artist, album, genre, user_id)
+        VALUES (?,?,?,?,?,?)
+        """,
+        (track_id, title, artist, album or "", genre, user_id),
+    )
+
+
+def delete_track_fts(conn: sqlite3.Connection, track_id: int) -> None:
+    conn.execute("DELETE FROM tracks_fts WHERE rowid=?", (track_id,))
+
+
 def init_db(path: Path | None = None) -> None:
     conn = _connect(path)
     try:
         conn.executescript(SCHEMA)
         _migrate(conn)
+        _ensure_fts(conn)
         conn.commit()
     finally:
         conn.close()

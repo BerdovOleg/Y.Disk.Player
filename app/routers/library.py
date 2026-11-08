@@ -9,8 +9,8 @@ from app.audio_meta import read_tags, safe_segment
 from app.catalog import build_library_tree, upsert_track_from_tags
 from app.deps import require_user, user_token
 from app.disk.client import DiskError, music_path, upload_file
-from app.disk.scanner import scan_disk_library
 from app.db import get_db, row_to_dict
+from app.scan_scheduler import get_scan_status, run_scan_for_user
 
 router = APIRouter(prefix="/api", tags=["library"])
 
@@ -54,6 +54,12 @@ def list_library(request: Request):
     }
 
 
+@router.get("/library/scan/status")
+def scan_status(request: Request):
+    user = require_user(request)
+    return get_scan_status(user["id"])
+
+
 @router.post("/library/scan")
 async def scan_library(request: Request):
     user = require_user(request)
@@ -64,7 +70,7 @@ async def scan_library(request: Request):
             "Dev stub has no Disk access — configure Yandex OAuth and re-login",
         )
     try:
-        result = await scan_disk_library(user["id"], token)
+        result = await run_scan_for_user(user["id"], token)
     except DiskError as exc:
         raise HTTPException(exc.status or 502, str(exc)) from exc
     return result

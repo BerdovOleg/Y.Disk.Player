@@ -98,6 +98,40 @@ def _make_session(lt: Any) -> Any:
     return ses
 
 
+def _iter_torrent_files(ti: Any) -> list[dict[str, Any]]:
+    """List files from torrent_info (libtorrent 2.x file_storage is not iterable)."""
+    fs = ti.files()
+    out: list[dict[str, Any]] = []
+    n = fs.num_files()
+    for i in range(n):
+        try:
+            p = fs.file_path(i)
+        except Exception:
+            p = fs.file_name(i)
+        try:
+            size = int(fs.file_size(i))
+        except Exception:
+            size = 0
+        ext = Path(str(p)).suffix.lower()
+        out.append(
+            {
+                "index": i,
+                "path": str(p),
+                "size": size,
+                "audio": ext in AUDIO_EXT,
+            }
+        )
+    return out
+
+
+def _file_size(ti: Any, index: int) -> int:
+    fs = ti.files()
+    try:
+        return int(fs.file_size(index))
+    except Exception:
+        return 0
+
+
 class TorrentWorker:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -226,18 +260,7 @@ class TorrentWorker:
             raise TimeoutError("Timed out waiting for torrent metadata")
 
         ti = handle.torrent_file()
-        out = []
-        for i, f in enumerate(ti.files()):
-            p = f.path
-            ext = Path(p).suffix.lower()
-            out.append(
-                {
-                    "index": i,
-                    "path": p,
-                    "size": f.size,
-                    "audio": ext in AUDIO_EXT,
-                }
-            )
+        out = _iter_torrent_files(ti)
         info_hash = str(ti.info_hash())
         try:
             ses.remove_torrent(handle, lt.session.delete_files)
@@ -343,7 +366,8 @@ class TorrentWorker:
             raise TimeoutError("metadata timeout")
 
         ti = handle.torrent_file()
-        priorities = [4 if i in selected else 0 for i in range(ti.num_files())]
+        n_files = ti.files().num_files()
+        priorities = [4 if i in selected else 0 for i in range(n_files)]
         try:
             handle.prioritize_files(priorities)
         except Exception:
@@ -386,9 +410,9 @@ class TorrentWorker:
                 fp = handle.file_progress()
                 if fp and selected:
                     done = all(
-                        (fp[i] >= ti.files()[i].size)
+                        (fp[i] >= _file_size(ti, i))
                         for i in selected
-                        if i < len(fp) and ti.files()[i].size > 0
+                        if i < len(fp) and _file_size(ti, i) > 0
                     )
                     if done:
                         finished = True

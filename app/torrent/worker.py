@@ -132,6 +132,16 @@ def _file_size(ti: Any, index: int) -> int:
         return 0
 
 
+def _add_job_torrent(lt: Any, ses: Any, job: dict, params: dict[str, Any]) -> Any:
+    """Add magnet or .torrent via session.add_torrent (libtorrent 2.x has no add_magnet_uri)."""
+    if job["source_type"] == "magnet":
+        params = {**params, "url": job["source_ref"]}
+        return ses.add_torrent(params)
+    path = Path(job["source_ref"])
+    params = {**params, "ti": lt.torrent_info(str(path))}
+    return ses.add_torrent(params)
+
+
 class TorrentWorker:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -236,12 +246,7 @@ class TorrentWorker:
         except Exception:
             pass
 
-        if job["source_type"] == "magnet":
-            handle = lt.add_magnet_uri(ses, job["source_ref"], params)
-        else:
-            path = Path(job["source_ref"])
-            params["ti"] = lt.torrent_info(str(path))
-            handle = ses.add_torrent(params)
+        handle = _add_job_torrent(lt, ses, job, params)
 
         try:
             handle.resume()
@@ -344,12 +349,7 @@ class TorrentWorker:
         save_path.mkdir(parents=True, exist_ok=True)
         ses = _make_session(lt)
         params: dict[str, Any] = {"save_path": str(save_path)}
-
-        if job["source_type"] == "magnet":
-            handle = lt.add_magnet_uri(ses, job["source_ref"], params)
-        else:
-            params["ti"] = lt.torrent_info(job["source_ref"])
-            handle = ses.add_torrent(params)
+        handle = _add_job_torrent(lt, ses, job, params)
 
         selected = {int(x) for x in json.loads(job["selected_json"] or "[]")}
 

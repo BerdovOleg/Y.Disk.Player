@@ -6,14 +6,21 @@
   <title>OneMoreTime</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/app.css" />
 </head>
 <body>
-  <div class="bg-glow" aria-hidden="true"></div>
-  <header class="top">
-    <a class="brand" href="/">OneMoreTime</a>
-    <nav class="nav">
+  <div class="atmosphere" aria-hidden="true">
+    <div class="atmosphere-wash"></div>
+    <div class="atmosphere-grain"></div>
+  </div>
+
+  <header class="shell-top">
+    <div class="brand-block">
+      <a class="brand" href="/">OneMoreTime</a>
+      <p class="brand-tag">Личная музыка на Яндекс.Диске</p>
+    </div>
+    <nav class="nav" aria-label="Разделы">
       <button type="button" data-view="library" class="nav-btn is-active">Библиотека</button>
       <button type="button" data-view="playlists" class="nav-btn">Плейлисты</button>
       <button type="button" data-view="favorites" class="nav-btn">Избранное</button>
@@ -36,7 +43,7 @@
       </div>
       <p id="disk-banner" class="banner muted hidden"></p>
       <p id="scan-last" class="banner muted hidden"></p>
-      <form id="upload-form" class="upload-bar">
+      <form id="upload-form" class="toolbar">
         <label class="file-label">
           <span>Загрузить аудио</span>
           <input type="file" id="upload-input" accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" />
@@ -58,12 +65,12 @@
         <h1>Плейлисты</h1>
         <p>Создавайте очереди и запускайте целиком</p>
       </div>
-      <form id="playlist-create" class="upload-bar">
+      <form id="playlist-create" class="toolbar">
         <input type="text" id="playlist-title" placeholder="Название плейлиста" />
         <button type="submit" class="btn">Создать</button>
       </form>
       <div id="playlists-list" class="jobs"></div>
-      <div id="playlist-detail" class="import-job hidden"></div>
+      <div id="playlist-detail" class="panel hidden"></div>
     </section>
 
     <section id="view-favorites" class="view">
@@ -101,7 +108,7 @@
           <input type="file" id="torrent-input" accept=".torrent" />
         </label>
       </form>
-      <div id="import-job" class="import-job hidden"></div>
+      <div id="import-job" class="panel hidden"></div>
       <div id="jobs-list" class="jobs"></div>
     </section>
   </main>

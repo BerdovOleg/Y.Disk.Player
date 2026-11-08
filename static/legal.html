@@ -6,28 +6,41 @@
   <title>Легальные источники — OneMoreTime</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Instrument+Serif&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/app.css" />
   <style>
-    .legal-page { max-width: 42rem; margin: 0 auto; padding: 2rem 1.5rem 6rem; }
-    .legal-page h1 { font-family: var(--display); font-weight: 400; font-size: 2.4rem; margin-bottom: 0.5rem; }
-    .legal-page h2 { font-size: 1.15rem; margin-top: 1.75rem; }
-    .legal-page ul { padding-left: 1.2rem; line-height: 1.6; }
-    .legal-page a { color: var(--accent); }
+    .legal-page { max-width: 42rem; margin: 0 auto; padding: 1.5rem clamp(1rem, 3vw, 2rem) 4rem; }
+    .legal-page h1 {
+      font-family: var(--display);
+      font-weight: 700;
+      font-size: clamp(1.8rem, 4vw, 2.4rem);
+      letter-spacing: -0.03em;
+      margin: 0 0 0.5rem;
+    }
+    .legal-page h2 { font-size: 1.1rem; margin-top: 1.75rem; }
+    .legal-page ul { padding-left: 1.2rem; line-height: 1.65; }
+    .legal-page a { color: var(--accent); font-weight: 600; }
     .disclaimer {
       margin-top: 2rem;
       padding: 1rem 1.1rem;
-      border-left: 3px solid var(--accent);
-      background: rgba(196, 240, 106, 0.06);
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: var(--bg-elev);
       color: var(--muted);
     }
   </style>
 </head>
 <body>
-  <div class="bg-glow" aria-hidden="true"></div>
-  <header class="top">
-    <a class="brand" href="/">OneMoreTime</a>
-    <nav class="nav">
+  <div class="atmosphere" aria-hidden="true">
+    <div class="atmosphere-wash"></div>
+    <div class="atmosphere-grain"></div>
+  </div>
+  <header class="shell-top">
+    <div class="brand-block">
+      <a class="brand" href="/">OneMoreTime</a>
+      <p class="brand-tag">Легальные источники</p>
+    </div>
+    <nav class="nav" aria-label="Навигация">
       <a class="nav-link" href="/">← К плееру</a>
     </nav>
   </header>

@@ -25,7 +25,7 @@ cp .env.example .env
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Open http://127.0.0.1:8000. Enable Disk scopes on the [Yandex OAuth](https://oauth.yandex.ru/) app (`cloud_api:disk.read`, `cloud_api:disk.write`, `cloud_api:disk.info`), then **Войти** (re-login after scope changes).
+Open http://127.0.0.1:8000. On the [Yandex OAuth](https://oauth.yandex.ru/) app, enable **default** Disk permissions (`cloud_api:disk.read`, `cloud_api:disk.write`, `cloud_api:disk.info`), keep `YANDEX_OAUTH_SCOPES` empty, then **Войти**. Do not put scopes in the authorize URL unless those exact scopes are enabled on the app — otherwise Yandex returns `invalid_scope`.
 
 ## Environment
 
@@ -34,7 +34,7 @@ See `.env.example`:
 | Variable | Purpose |
 |----------|---------|
 | `YANDEX_CLIENT_ID` / `YANDEX_CLIENT_SECRET` | Yandex OAuth app |
-| `YANDEX_OAUTH_SCOPES` | Default includes Disk read/write + login:info |
+| `YANDEX_OAUTH_SCOPES` | Optional override; leave empty (use app defaults) |
 | `OAUTH_REDIRECT_URI` | Default `http://127.0.0.1:8000/auth/callback` |
 | `FERNET_KEY` | Encrypt Disk tokens at rest |
 | `SESSION_SECRET` | Sign session cookie |

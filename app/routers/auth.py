@@ -97,8 +97,11 @@ async def login():
         "redirect_uri": OAUTH_REDIRECT_URI,
         "force_confirm": "yes",
         "state": state,
-        "scope": YANDEX_OAUTH_SCOPES,
     }
+    # Only pass scope when explicitly configured. Requesting scopes that are
+    # not enabled on the OAuth app causes Yandex error=invalid_scope.
+    if YANDEX_OAUTH_SCOPES:
+        params["scope"] = YANDEX_OAUTH_SCOPES
     url = f"{YANDEX_AUTH_URL}?{urlencode(params)}"
     resp = RedirectResponse(url, status_code=302)
     resp.set_cookie("omt_oauth_state", state, max_age=600, httponly=True, samesite="lax")
@@ -106,9 +109,25 @@ async def login():
 
 
 @router.get("/callback")
-async def callback(request: Request, code: str | None = None, state: str | None = None):
+async def callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
     if not oauth_configured():
         raise HTTPException(503, "OAuth not configured")
+    if error:
+        detail = error_description or error
+        if error == "invalid_scope":
+            detail = (
+                f"{detail}. Enable Disk scopes (cloud_api:disk.read / disk.write / "
+                "disk.info) as default permissions on https://oauth.yandex.ru/ for "
+                "this app, clear YANDEX_OAUTH_SCOPES (or set only scopes the app has), "
+                "then try /auth/login again."
+            )
+        raise HTTPException(400, detail)
     if not code:
         raise HTTPException(400, "Missing code")
     expected = request.cookies.get("omt_oauth_state")

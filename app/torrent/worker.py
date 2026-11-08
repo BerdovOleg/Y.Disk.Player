@@ -135,11 +135,18 @@ def _file_size(ti: Any, index: int) -> int:
 def _add_job_torrent(lt: Any, ses: Any, job: dict, params: dict[str, Any]) -> Any:
     """Add magnet or .torrent via session.add_torrent (libtorrent 2.x has no add_magnet_uri)."""
     if job["source_type"] == "magnet":
-        params = {**params, "url": job["source_ref"]}
-        return ses.add_torrent(params)
+        # 2.x: parse_magnet_uri → add_torrent_params (no params.url / add_magnet_uri)
+        atp = lt.parse_magnet_uri(job["source_ref"])
+        atp.save_path = params.get("save_path") or str(TORRENT_DOWNLOAD_DIR)
+        if "flags" in params:
+            try:
+                atp.flags = params["flags"]
+            except Exception:
+                pass
+        return ses.add_torrent(atp)
     path = Path(job["source_ref"])
-    params = {**params, "ti": lt.torrent_info(str(path))}
-    return ses.add_torrent(params)
+    add_params = {**params, "ti": lt.torrent_info(str(path))}
+    return ses.add_torrent(add_params)
 
 
 class TorrentWorker:

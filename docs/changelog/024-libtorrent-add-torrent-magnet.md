@@ -6,13 +6,13 @@
 Magnet import crashed: `AttributeError: module 'libtorrent' has no attribute 'add_magnet_uri'`.
 
 ## Decision
-Use `ses.add_torrent({..., 'url': magnet})` (and `ti` for `.torrent` files) via `_add_job_torrent`.
+Use `lt.parse_magnet_uri(magnet)` → set `save_path`/`flags` → `ses.add_torrent(atp)`. `.torrent` files still use `ses.add_torrent({ti, save_path})`. (This build has neither `add_magnet_uri` nor `add_torrent_params.url`.)
 
 ## Changes
-- `app/torrent/worker.py` — list + download paths
+- `app/torrent/worker.py` — `_add_job_torrent` for list + download
 
 ## Worked
-Import path no longer references removed `add_magnet_uri`.
+`parse_magnet_uri` + `add_torrent` succeeds; `.torrent` list path unchanged.
 
 ## Failed / blocked
 —

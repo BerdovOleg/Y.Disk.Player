@@ -3,7 +3,6 @@ from __future__ import annotations
 import secrets
 from urllib.parse import urlencode
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 

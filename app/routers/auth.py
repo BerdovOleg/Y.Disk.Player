@@ -13,11 +13,13 @@ from app.config import (
     YANDEX_AUTH_URL,
     YANDEX_CLIENT_ID,
     YANDEX_CLIENT_SECRET,
+    YANDEX_DISK_API,
     YANDEX_LOGIN_URL,
+    YANDEX_OAUTH_SCOPES,
     YANDEX_TOKEN_URL,
     oauth_configured,
 )
-from app.crypto_util import encrypt_token
+from app.crypto_util import decrypt_token, encrypt_token
 from app.db import get_db, row_to_dict
 from app.session import clear_session, get_user_id, set_session
 
@@ -25,21 +27,60 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.get("/status")
-def auth_status(request: Request):
+async def auth_status(request: Request):
     uid = get_user_id(request)
     oauth = oauth_configured()
     user = None
+    disk_ok: bool | None = None
+    disk_error: str | None = None
     if uid is not None:
         with get_db() as db:
             row = db.execute(
-                "SELECT id, yandex_id, display_name FROM users WHERE id = ?", (uid,)
+                "SELECT id, yandex_id, display_name, token_enc FROM users WHERE id = ?",
+                (uid,),
             ).fetchone()
-            user = row_to_dict(row)
+            full = row_to_dict(row)
+            if full:
+                user = {
+                    "id": full["id"],
+                    "yandex_id": full["yandex_id"],
+                    "display_name": full["display_name"],
+                }
+                enc = full.get("token_enc")
+                if enc:
+                    try:
+                        token = decrypt_token(enc)
+                        if token.startswith("dev-stub"):
+                            disk_ok = False
+                            disk_error = "dev stub token"
+                        else:
+                            async with httpx.AsyncClient(timeout=15.0) as client:
+                                r = await client.get(
+                                    YANDEX_DISK_API,
+                                    headers={"Authorization": f"OAuth {token}"},
+                                )
+                            disk_ok = r.status_code < 400
+                            if not disk_ok:
+                                try:
+                                    msg = r.json().get("message") or r.json().get("error")
+                                except Exception:
+                                    msg = r.text[:120]
+                                disk_error = f"{r.status_code}: {msg}"
+                    except Exception as exc:  # noqa: BLE001
+                        disk_ok = False
+                        disk_error = str(exc)
     return {
         "authenticated": user is not None,
         "user": user,
         "oauth_configured": oauth,
         "dev_auth_available": ALLOW_DEV_AUTH and not oauth,
+        "disk_ok": disk_ok,
+        "disk_error": disk_error,
+        "relogin_hint": (
+            "Disk API forbidden — re-login via Yandex so the token gets disk scopes"
+            if disk_ok is False and disk_error and "403" in str(disk_error)
+            else None
+        ),
     }
 
 
@@ -56,6 +97,7 @@ async def login():
         "redirect_uri": OAUTH_REDIRECT_URI,
         "force_confirm": "yes",
         "state": state,
+        "scope": YANDEX_OAUTH_SCOPES,
     }
     url = f"{YANDEX_AUTH_URL}?{urlencode(params)}"
     resp = RedirectResponse(url, status_code=302)

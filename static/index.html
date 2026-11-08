@@ -33,12 +33,15 @@
         <h1>Библиотека</h1>
         <p>Личная музыка на Яндекс.Диске</p>
       </div>
+      <p id="disk-banner" class="banner muted hidden"></p>
       <form id="upload-form" class="upload-bar">
         <label class="file-label">
           <span>Загрузить аудио</span>
           <input type="file" id="upload-input" accept="audio/*,.mp3,.flac,.m4a,.ogg,.wav" />
         </label>
+        <button type="button" class="btn btn-ghost" id="scan-btn">Сканировать Диск</button>
         <span id="upload-status" class="muted"></span>
+        <span id="scan-status" class="muted"></span>
       </form>
       <div id="library-list" class="track-list"></div>
     </section>

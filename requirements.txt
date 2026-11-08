@@ -7,5 +7,7 @@ python-multipart>=0.0.12
 python-dotenv>=1.0.0
 itsdangerous>=2.2.0
 aiofiles>=24.1.0
-# Optional: python-libtorrent (system package or pip wheel when available)
-# libtorrent
+# libtorrent: not on PyPI for most platforms. On macOS:
+#   brew install libtorrent-rasterbar
+#   create venv with Homebrew python@3.15 --system-site-packages
+# so `import libtorrent` resolves from /opt/homebrew/lib/python3.15/site-packages

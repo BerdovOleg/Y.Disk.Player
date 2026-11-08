@@ -38,6 +38,12 @@ YANDEX_TOKEN_URL = "https://oauth.yandex.ru/token"
 YANDEX_LOGIN_URL = "https://login.yandex.ru/info"
 YANDEX_DISK_API = "https://cloud-api.yandex.net/v1/disk"
 
+# Disk scopes must also be enabled on the OAuth app at https://oauth.yandex.ru/
+YANDEX_OAUTH_SCOPES = os.getenv(
+    "YANDEX_OAUTH_SCOPES",
+    "login:info cloud_api:disk.read cloud_api:disk.write cloud_api:disk.info",
+).strip()
+
 
 def oauth_configured() -> bool:
     return bool(YANDEX_CLIENT_ID and YANDEX_CLIENT_SECRET)

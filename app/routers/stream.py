@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.deps import require_user, user_token
@@ -9,6 +9,19 @@ from app.disk.client import DiskError, get_download_href
 from app.db import get_db, row_to_dict
 
 router = APIRouter(prefix="/api", tags=["stream"])
+
+_MIME_FIX = {
+    "audio/mp3": "audio/mpeg",
+    "audio/x-mp3": "audio/mpeg",
+    "audio/flac": "audio/flac",
+    "audio/x-flac": "audio/flac",
+}
+
+
+def _normalize_mime(mime: str | None) -> str:
+    if not mime:
+        return "audio/mpeg"
+    return _MIME_FIX.get(mime.lower(), mime)
 
 
 @router.get("/stream/{track_id}")
@@ -24,6 +37,8 @@ async def stream_track(track_id: int, request: Request):
     track = row_to_dict(row)
     if not track:
         raise HTTPException(404, "Track not found")
+    if track.get("available") == 0:
+        raise HTTPException(410, "Track file missing on Disk — run library scan")
 
     # Dev stub token cannot hit real Disk
     if token.startswith("dev-stub"):
@@ -35,10 +50,18 @@ async def stream_track(track_id: int, request: Request):
     try:
         href = await get_download_href(token, track["disk_path"])
     except DiskError as exc:
-        raise HTTPException(exc.status or 502, str(exc)) from exc
+        detail = str(exc)
+        if exc.status == 403:
+            detail = (
+                "Disk access forbidden — open /auth/login to re-authorize "
+                "with cloud_api:disk.read / disk.write scopes"
+            )
+        raise HTTPException(exc.status or 502, detail) from exc
 
     range_header = request.headers.get("range")
-    upstream_headers: dict[str, str] = {}
+    upstream_headers: dict[str, str] = {
+        "Accept": "*/*",
+    }
     if range_header:
         upstream_headers["Range"] = range_header
 
@@ -56,18 +79,27 @@ async def stream_track(track_id: int, request: Request):
         body = await upstream.aread()
         await upstream.aclose()
         await client.aclose()
-        raise HTTPException(upstream.status_code, body.decode("utf-8", errors="replace"))
+        raise HTTPException(
+            upstream.status_code,
+            body.decode("utf-8", errors="replace")[:300],
+        )
 
-    media_type = track.get("mime") or upstream.headers.get("content-type") or "audio/mpeg"
+    media_type = _normalize_mime(
+        track.get("mime") or upstream.headers.get("content-type")
+    )
     out_headers: dict[str, str] = {
         "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=0",
+        "Cache-Control": "private, max-age=0, no-transform",
+        "Content-Type": media_type,
     }
-    for key in ("Content-Length", "Content-Range", "Content-Type"):
+    for key in ("Content-Length", "Content-Range"):
         if key in upstream.headers:
             out_headers[key] = upstream.headers[key]
-    if "Content-Type" not in out_headers:
-        out_headers["Content-Type"] = media_type
+    # Prefer upstream media type when it looks like audio/*
+    up_ct = upstream.headers.get("content-type")
+    if up_ct and up_ct.lower().startswith("audio/"):
+        out_headers["Content-Type"] = _normalize_mime(up_ct.split(";")[0].strip())
+        media_type = out_headers["Content-Type"]
 
     async def body_iter():
         try:

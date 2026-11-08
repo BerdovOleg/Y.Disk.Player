@@ -3,11 +3,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
+import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from app.audio_meta import read_tags, safe_segment
+from app.catalog import upsert_track_from_tags
 from app.config import TORRENT_DOWNLOAD_DIR
 from app.crypto_util import decrypt_token
 from app.db import get_db, row_to_dict
@@ -19,21 +23,79 @@ AUDIO_EXT = {".mp3", ".flac", ".m4a", ".aac", ".ogg", ".opus", ".wav", ".wma", "
 
 _lt = None
 _lt_error: str | None = None
+_lt_version: str | None = None
+
+_BREW_SITE = "/opt/homebrew/lib/python3.15/site-packages"
 
 
 def _import_libtorrent():
-    global _lt, _lt_error
-    if _lt is not None or _lt_error:
+    global _lt, _lt_error, _lt_version
+    if _lt is not None:
         return _lt
+    if _lt_error and _lt is None and "unavailable" in (_lt_error or ""):
+        # allow retry after brew install in same process? reset once
+        pass
     try:
         import libtorrent as lt  # type: ignore
 
         _lt = lt
+        _lt_version = getattr(lt, "__version__", None) or str(
+            getattr(lt, "version", "?")
+        )
+        _lt_error = None
         return lt
-    except Exception as exc:  # noqa: BLE001
-        _lt_error = str(exc)
-        log.warning("libtorrent unavailable: %s", exc)
-        return None
+    except Exception:
+        # Brew-installed bindings (Homebrew python@3.15)
+        if _BREW_SITE not in sys.path:
+            sys.path.insert(0, _BREW_SITE)
+        try:
+            import libtorrent as lt  # type: ignore
+
+            _lt = lt
+            _lt_version = getattr(lt, "__version__", None) or str(
+                getattr(lt, "version", "?")
+            )
+            _lt_error = None
+            return lt
+        except Exception as exc:  # noqa: BLE001
+            _lt_error = str(exc)
+            log.warning("libtorrent unavailable: %s", exc)
+            return None
+
+
+def _make_session(lt: Any) -> Any:
+    ses = lt.session()
+    settings = {
+        "listen_interfaces": "0.0.0.0:0",
+        "enable_dht": True,
+        "enable_lsd": True,
+        "enable_upnp": True,
+        "enable_natpmp": True,
+        "announce_to_all_tiers": True,
+        "announce_to_all_trackers": True,
+    }
+    try:
+        ses.apply_settings(settings)
+    except Exception:
+        # Older API fallback
+        try:
+            ses.listen_on(6881, 6891)
+        except Exception:
+            pass
+    for host, port in (
+        ("router.bittorrent.com", 6881),
+        ("router.utorrent.com", 6881),
+        ("dht.transmissionbt.com", 6881),
+    ):
+        try:
+            ses.add_dht_router(host, port)
+        except Exception:
+            pass
+    try:
+        ses.start_dht()
+    except Exception:
+        pass
+    return ses
 
 
 class TorrentWorker:
@@ -46,9 +108,14 @@ class TorrentWorker:
         self._loop = loop
 
     def libtorrent_status(self) -> dict[str, Any]:
+        # Reset cached miss so brew install mid-run can be picked up
+        global _lt, _lt_error
+        if _lt is None:
+            _lt_error = None
         lt = _import_libtorrent()
         return {
             "available": lt is not None,
+            "version": _lt_version,
             "error": _lt_error,
         }
 
@@ -92,28 +159,14 @@ class TorrentWorker:
         self._update_job(job_id, status="listing", error=None)
         lt = _import_libtorrent()
         if lt is None:
-            # Stub listing when libtorrent missing — allows UI/flow testing
-            job = self._job(job_id)
-            stub = [
-                {
-                    "index": 0,
-                    "path": "Example Artist/Example Album/01 - Track.mp3",
-                    "size": 3_500_000,
-                    "audio": True,
-                },
-                {
-                    "index": 1,
-                    "path": "readme.txt",
-                    "size": 1200,
-                    "audio": False,
-                },
-            ]
             self._update_job(
                 job_id,
-                status="awaiting_confirm",
-                file_list_json=json.dumps(stub),
-                info_hash="stub-no-libtorrent",
-                error=f"libtorrent unavailable ({_lt_error}); showing stub file list",
+                status="error",
+                error=(
+                    f"libtorrent unavailable ({_lt_error}). "
+                    "Install: brew install libtorrent-rasterbar and use "
+                    "Homebrew Python 3.15 venv (--system-site-packages)."
+                ),
             )
             return
 
@@ -134,15 +187,20 @@ class TorrentWorker:
             self._update_job(job_id, status="error", error=str(exc))
 
     def _sync_list_files(self, lt: Any, job: dict) -> dict[str, Any]:
-        ses = lt.session({"listen_interfaces": "0.0.0.0:0"})
+        ses = _make_session(lt)
+        save = TORRENT_DOWNLOAD_DIR / f"job-{job['id']}"
+        save.mkdir(parents=True, exist_ok=True)
         params: dict[str, Any] = {
-            "save_path": str(TORRENT_DOWNLOAD_DIR / f"job-{job['id']}"),
-            "flags": lt.torrent_flags.default_flags
-            | lt.torrent_flags.upload_mode
-            | getattr(lt.torrent_flags, "paused", 0),
+            "save_path": str(save),
         }
-        TORRENT_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        (TORRENT_DOWNLOAD_DIR / f"job-{job['id']}").mkdir(parents=True, exist_ok=True)
+        try:
+            params["flags"] = (
+                lt.torrent_flags.upload_mode
+                | lt.torrent_flags.paused
+                | lt.torrent_flags.auto_managed
+            )
+        except Exception:
+            pass
 
         if job["source_type"] == "magnet":
             handle = lt.add_magnet_uri(ses, job["source_ref"], params)
@@ -151,15 +209,20 @@ class TorrentWorker:
             params["ti"] = lt.torrent_info(str(path))
             handle = ses.add_torrent(params)
 
-        # Wait for metadata
-        for _ in range(120):  # ~60s
+        try:
+            handle.resume()
+        except Exception:
+            pass
+
+        for _ in range(180):  # ~90s for metadata
             if handle.status().has_metadata:
                 break
-            import time
-
             time.sleep(0.5)
         if not handle.status().has_metadata:
-            ses.remove_torrent(handle)
+            try:
+                ses.remove_torrent(handle)
+            except Exception:
+                pass
             raise TimeoutError("Timed out waiting for torrent metadata")
 
         ti = handle.torrent_file()
@@ -176,7 +239,13 @@ class TorrentWorker:
                 }
             )
         info_hash = str(ti.info_hash())
-        ses.remove_torrent(handle)
+        try:
+            ses.remove_torrent(handle, lt.session.delete_files)
+        except Exception:
+            try:
+                ses.remove_torrent(handle)
+            except Exception:
+                pass
         return {"files": out, "info_hash": info_hash}
 
     async def _download_and_upload(self, job_id: int) -> None:
@@ -196,9 +265,12 @@ class TorrentWorker:
             )
             return
 
+        save_dir = TORRENT_DOWNLOAD_DIR / f"job-{job_id}"
         self._update_job(job_id, status="downloading", progress=0, error=None)
         try:
-            save_dir = await asyncio.to_thread(self._sync_download, lt, job)
+            save_dir = Path(
+                await asyncio.to_thread(self._sync_download, lt, job, job_id)
+            )
             self._update_job(job_id, status="uploading", progress=0.5)
             token = self._user_token(job["user_id"])
             selected = json.loads(job["selected_json"] or "[]")
@@ -207,9 +279,8 @@ class TorrentWorker:
             uploaded = 0
             total = max(len(selected), 1)
             for idx in selected:
-                meta = file_list.get(idx) or file_list.get(str(idx))
+                meta = file_list.get(idx)
                 if not meta:
-                    # selected may be int list
                     meta = next(
                         (f for f in file_list.values() if f["index"] == idx), None
                     )
@@ -218,7 +289,6 @@ class TorrentWorker:
                 rel = meta["path"]
                 local = Path(save_dir) / rel
                 if not local.exists():
-                    # libtorrent may flatten differently
                     candidates = list(Path(save_dir).rglob(Path(rel).name))
                     if candidates:
                         local = candidates[0]
@@ -235,7 +305,7 @@ class TorrentWorker:
                     artist, f"{year_part}{album}", safe_segment(local.name)
                 )
                 await upload_file(token, local, remote)
-                self._catalog_track(job["user_id"], tags, remote, local)
+                upsert_track_from_tags(job["user_id"], tags, remote)
                 uploaded += 1
                 self._update_job(job_id, progress=0.5 + 0.5 * (uploaded / total))
 
@@ -243,12 +313,19 @@ class TorrentWorker:
         except Exception as exc:  # noqa: BLE001
             log.exception("download failed job=%s", job_id)
             self._update_job(job_id, status="error", error=str(exc))
+        finally:
+            # Wipe temp download tree after catalog (or on failure)
+            try:
+                if save_dir.exists():
+                    shutil.rmtree(save_dir, ignore_errors=True)
+            except Exception:
+                pass
 
-    def _sync_download(self, lt: Any, job: dict) -> str:
-        save_path = TORRENT_DOWNLOAD_DIR / f"job-{job['id']}"
+    def _sync_download(self, lt: Any, job: dict, job_id: int) -> str:
+        save_path = TORRENT_DOWNLOAD_DIR / f"job-{job_id}"
         save_path.mkdir(parents=True, exist_ok=True)
+        ses = _make_session(lt)
         params: dict[str, Any] = {"save_path": str(save_path)}
-        ses = lt.session({"listen_interfaces": "0.0.0.0:0"})
 
         if job["source_type"] == "magnet":
             handle = lt.add_magnet_uri(ses, job["source_ref"], params)
@@ -256,11 +333,9 @@ class TorrentWorker:
             params["ti"] = lt.torrent_info(job["source_ref"])
             handle = ses.add_torrent(params)
 
-        selected = set(json.loads(job["selected_json"] or "[]"))
-        # Wait metadata
-        import time
+        selected = {int(x) for x in json.loads(job["selected_json"] or "[]")}
 
-        for _ in range(120):
+        for _ in range(180):
             if handle.status().has_metadata:
                 break
             time.sleep(0.5)
@@ -268,105 +343,69 @@ class TorrentWorker:
             raise TimeoutError("metadata timeout")
 
         ti = handle.torrent_file()
-        priorities = []
-        for i in range(ti.num_files()):
-            priorities.append(4 if i in selected else 0)
-        handle.prioritize_files(priorities)
+        priorities = [4 if i in selected else 0 for i in range(ti.num_files())]
+        try:
+            handle.prioritize_files(priorities)
+        except Exception:
+            for i, prio in enumerate(priorities):
+                try:
+                    handle.file_priority(i, prio)
+                except Exception:
+                    pass
 
-        # Download until done or timeout (~30 min)
-        for _ in range(3600):
+        try:
+            handle.resume()
+        except Exception:
+            pass
+        try:
+            handle.set_upload_mode(False)
+        except Exception:
+            pass
+
+        # Download until selected files complete or ~45 min
+        for tick in range(5400):
             st = handle.status()
-            if st.is_seeding or (
-                st.state in (lt.torrent_status.seeding, lt.torrent_status.finished)
-            ):
+            prog = float(st.progress)
+            if tick % 4 == 0:
+                self._update_job(job_id, progress=min(prog * 0.5, 0.49))
+
+            finished = False
+            try:
+                if st.state in (
+                    getattr(lt.torrent_status, "seeding", 5),
+                    getattr(lt.torrent_status, "finished", 4),
+                ):
+                    finished = True
+            except Exception:
+                pass
+            if getattr(st, "is_finished", False) or getattr(st, "is_seeding", False):
+                finished = True
+
+            # Selected-file progress (ignore deselected)
+            try:
+                fp = handle.file_progress()
+                if fp and selected:
+                    done = all(
+                        (fp[i] >= ti.files()[i].size)
+                        for i in selected
+                        if i < len(fp) and ti.files()[i].size > 0
+                    )
+                    if done:
+                        finished = True
+            except Exception:
+                pass
+
+            if finished:
                 break
-            # progress among selected
-            prog = st.progress
-            # best-effort update without opening another connection heavily
             time.sleep(0.5)
         else:
             raise TimeoutError("download timeout")
 
+        try:
+            ses.remove_torrent(handle)
+        except Exception:
+            pass
         return str(save_path)
-
-    def _catalog_track(
-        self, user_id: int, tags: dict, remote: str, local: Path
-    ) -> None:
-        year = tags.get("year")
-        artist = tags["artist"]
-        album = tags["album"]
-        year_part = f"{year} - " if year else ""
-        with get_db() as db:
-            alb = db.execute(
-                """
-                SELECT id FROM albums
-                WHERE user_id=? AND artist=? AND title=? AND (
-                    (year IS NULL AND ? IS NULL) OR year=?
-                )
-                """,
-                (user_id, artist, album, year, year),
-            ).fetchone()
-            if alb:
-                album_id = alb["id"]
-            else:
-                cur = db.execute(
-                    """
-                    INSERT INTO albums (user_id, artist, title, year, disk_path)
-                    VALUES (?,?,?,?,?)
-                    """,
-                    (
-                        user_id,
-                        artist,
-                        album,
-                        year,
-                        music_path(
-                            safe_segment(artist),
-                            f"{year_part}{safe_segment(album)}",
-                        ),
-                    ),
-                )
-                album_id = cur.lastrowid
-
-            existing = db.execute(
-                "SELECT id FROM tracks WHERE user_id=? AND disk_path=?",
-                (user_id, remote),
-            ).fetchone()
-            if existing:
-                db.execute(
-                    """
-                    UPDATE tracks SET album_id=?, title=?, artist=?, duration_sec=?,
-                        track_num=?, mime=?, size_bytes=? WHERE id=?
-                    """,
-                    (
-                        album_id,
-                        tags["title"],
-                        artist,
-                        tags.get("duration_sec"),
-                        tags.get("track_num"),
-                        tags.get("mime"),
-                        tags.get("size_bytes"),
-                        existing["id"],
-                    ),
-                )
-            else:
-                db.execute(
-                    """
-                    INSERT INTO tracks
-                      (user_id, album_id, title, artist, duration_sec, track_num, mime, size_bytes, disk_path)
-                    VALUES (?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        user_id,
-                        album_id,
-                        tags["title"],
-                        artist,
-                        tags.get("duration_sec"),
-                        tags.get("track_num"),
-                        tags.get("mime"),
-                        tags.get("size_bytes"),
-                        remote,
-                    ),
-                )
 
 
 _worker: TorrentWorker | None = None

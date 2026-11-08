@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     mime TEXT,
     size_bytes INTEGER,
     disk_path TEXT NOT NULL,
+    available INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, disk_path)
 );
@@ -96,10 +97,19 @@ def _connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(tracks)").fetchall()}
+    if "available" not in cols:
+        conn.execute(
+            "ALTER TABLE tracks ADD COLUMN available INTEGER NOT NULL DEFAULT 1"
+        )
+
+
 def init_db(path: Path | None = None) -> None:
     conn = _connect(path)
     try:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
     finally:
         conn.close()

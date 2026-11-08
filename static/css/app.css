@@ -164,6 +164,7 @@ body {
   background: rgba(196, 240, 106, 0.06);
   border-color: var(--line);
 }
+.track.is-unavailable { opacity: 0.45; }
 .track-num { color: var(--muted); width: 1.5rem; text-align: right; font-variant-numeric: tabular-nums; }
 .track-meta { min-width: 0; }
 .track-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -53,10 +53,10 @@
     el.innerHTML = tracks
       .map(
         (t, i) => `
-      <div class="track" data-id="${t.id}" role="button" tabindex="0">
+      <div class="track ${t.available === 0 ? "is-unavailable" : ""}" data-id="${t.id}" role="button" tabindex="0">
         <span class="track-num">${t.track_num || i + 1}</span>
         <div class="track-meta">
-          <div class="track-title">${escapeHtml(t.title)}</div>
+          <div class="track-title">${escapeHtml(t.title)}${t.available === 0 ? " <span class=\"muted\">(нет на Диске)</span>" : ""}</div>
           <div class="track-sub">${escapeHtml(t.artist || "")}${t.duration_sec ? " · " + Math.round(t.duration_sec) + "s" : ""}</div>
         </div>
         <button type="button" class="fav-btn ${t.is_favorite ? "is-on" : ""}" data-fav="${t.id}" aria-label="Favorite">${t.is_favorite ? "♥" : "♡"}</button>
@@ -102,10 +102,20 @@
   async function refreshAuth() {
     const st = await api("/auth/status");
     window.OMT.user = st.user;
+    const banner = document.getElementById("disk-banner");
     if (st.authenticated) {
       authLabel.textContent = st.user.display_name || "User";
       loginBtn.classList.add("hidden");
       logoutBtn.classList.remove("hidden");
+      if (st.disk_ok === false) {
+        banner.classList.remove("hidden");
+        banner.innerHTML =
+          escapeHtml(st.relogin_hint || st.disk_error || "Нет доступа к Диску") +
+          ' — <a href="/auth/login">войти снова через Яндекс</a>';
+      } else {
+        banner.classList.add("hidden");
+        banner.textContent = "";
+      }
     } else {
       authLabel.textContent = st.dev_auth_available
         ? "Гость (dev login)"
@@ -116,6 +126,7 @@
       loginBtn.href = st.dev_auth_available ? "/auth/dev-login" : "/auth/login";
       loginBtn.textContent = st.dev_auth_available ? "Dev-вход" : "Войти";
       logoutBtn.classList.add("hidden");
+      banner.classList.add("hidden");
     }
     return st;
   }
@@ -125,11 +136,29 @@
     try {
       const data = await api("/api/library");
       window.OMT.tracks = data.tracks;
-      renderTracks(el, data.tracks, { empty: "Библиотека пуста — загрузите трек" });
+      renderTracks(el, data.tracks, {
+        empty: "Библиотека пуста — загрузите трек или сканируйте Диск",
+      });
     } catch (err) {
       el.innerHTML = `<p class="muted">${escapeHtml(err.message)}</p>`;
     }
   }
+
+  document.getElementById("scan-btn").addEventListener("click", async () => {
+    const status = document.getElementById("scan-status");
+    const btn = document.getElementById("scan-btn");
+    status.textContent = "Сканирование…";
+    btn.disabled = true;
+    try {
+      const res = await api("/api/library/scan", { method: "POST" });
+      status.textContent = `Готово: +${res.added} / ~${res.updated} / skip ${res.skipped} / нет ${res.unavailable}` +
+        (res.error_count ? ` · ошибок ${res.error_count}` : "");
+      await loadLibrary();
+    } catch (err) {
+      status.textContent = err.message;
+    }
+    btn.disabled = false;
+  });
 
   async function loadFavorites() {
     const el = document.getElementById("favorites-list");

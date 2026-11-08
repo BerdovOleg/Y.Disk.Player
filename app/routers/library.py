@@ -6,8 +6,10 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
 from app.audio_meta import read_tags, safe_segment
+from app.catalog import upsert_track_from_tags
 from app.deps import require_user, user_token
 from app.disk.client import DiskError, music_path, upload_file
+from app.disk.scanner import scan_disk_library
 from app.db import get_db, row_to_dict
 
 router = APIRouter(prefix="/api", tags=["library"])
@@ -43,6 +45,22 @@ def list_library(request: Request):
         "albums": [dict(a) for a in albums],
         "tracks": [dict(t) for t in tracks],
     }
+
+
+@router.post("/library/scan")
+async def scan_library(request: Request):
+    user = require_user(request)
+    token = user_token(user)
+    if token.startswith("dev-stub"):
+        raise HTTPException(
+            503,
+            "Dev stub has no Disk access — configure Yandex OAuth and re-login",
+        )
+    try:
+        result = await scan_disk_library(user["id"], token)
+    except DiskError as exc:
+        raise HTTPException(exc.status or 502, str(exc)) from exc
+    return result
 
 
 @router.get("/tracks/{track_id}")
@@ -88,85 +106,7 @@ async def upload_audio(request: Request, file: UploadFile = File(...)):
         except DiskError as exc:
             raise HTTPException(exc.status or 502, str(exc)) from exc
 
-        with get_db() as db:
-            alb = db.execute(
-                """
-                SELECT id FROM albums
-                WHERE user_id=? AND artist=? AND title=? AND (
-                    (year IS NULL AND ? IS NULL) OR year=?
-                )
-                """,
-                (user["id"], meta["artist"], meta["album"], year, year),
-            ).fetchone()
-            if alb:
-                album_id = alb["id"]
-                db.execute(
-                    "UPDATE albums SET disk_path=? WHERE id=?",
-                    (music_path(artist, f"{year_part}{album}"), album_id),
-                )
-            else:
-                cur = db.execute(
-                    """
-                    INSERT INTO albums (user_id, artist, title, year, disk_path)
-                    VALUES (?,?,?,?,?)
-                    """,
-                    (
-                        user["id"],
-                        meta["artist"],
-                        meta["album"],
-                        year,
-                        music_path(artist, f"{year_part}{album}"),
-                    ),
-                )
-                album_id = cur.lastrowid
-
-            existing = db.execute(
-                "SELECT id FROM tracks WHERE user_id=? AND disk_path=?",
-                (user["id"], remote),
-            ).fetchone()
-            if existing:
-                db.execute(
-                    """
-                    UPDATE tracks SET album_id=?, title=?, artist=?, duration_sec=?,
-                        track_num=?, mime=?, size_bytes=?
-                    WHERE id=?
-                    """,
-                    (
-                        album_id,
-                        meta["title"],
-                        meta["artist"],
-                        meta["duration_sec"],
-                        meta["track_num"],
-                        meta["mime"],
-                        meta["size_bytes"],
-                        existing["id"],
-                    ),
-                )
-                track_id = existing["id"]
-            else:
-                cur = db.execute(
-                    """
-                    INSERT INTO tracks
-                      (user_id, album_id, title, artist, duration_sec, track_num, mime, size_bytes, disk_path)
-                    VALUES (?,?,?,?,?,?,?,?,?)
-                    """,
-                    (
-                        user["id"],
-                        album_id,
-                        meta["title"],
-                        meta["artist"],
-                        meta["duration_sec"],
-                        meta["track_num"],
-                        meta["mime"],
-                        meta["size_bytes"],
-                        remote,
-                    ),
-                )
-                track_id = cur.lastrowid
-
-            track = row_to_dict(
-                db.execute("SELECT * FROM tracks WHERE id=?", (track_id,)).fetchone()
-            )
+        track = upsert_track_from_tags(user["id"], meta, remote)
         return {"ok": True, "track": track, "disk_path": remote}
     finally:
         tmp_path.unlink(missing_ok=True)

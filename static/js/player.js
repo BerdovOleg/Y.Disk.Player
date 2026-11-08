@@ -52,9 +52,20 @@
       el.classList.toggle("is-playing", Number(el.dataset.id) === t.id);
     });
     if (autoplay) {
-      audio.play().catch(() => {});
+      audio.play().catch((err) => {
+        nowArtist.textContent = (nowArtist.textContent || "") +
+          (err && err.message ? ` · ${err.message}` : " · playback failed");
+      });
       btnPlay.textContent = "⏸";
     }
+    audio.addEventListener(
+      "error",
+      () => {
+        const code = audio.error && audio.error.code;
+        nowArtist.textContent = `Ошибка потока${code ? " (" + code + ")" : ""} — проверьте вход / Диск`;
+      },
+      { once: true }
+    );
     if (window.OMT && typeof window.OMT.onPlay === "function") {
       window.OMT.onPlay(t);
     }

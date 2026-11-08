@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-08T19:54:03Z",
+  "title": "Design System: OneMoreTime",
+  "extensions": {
+    "colorMeta": {
+      "linen-field": { "role": "neutral", "displayName": "Linen Field", "canonical": "#e7edf2" },
+      "linen-elev": { "role": "neutral", "displayName": "Linen Elev", "canonical": "#f7f9fb" },
+      "slate-ink": { "role": "neutral", "displayName": "Slate Ink", "canonical": "#182433" },
+      "slate-muted": { "role": "neutral", "displayName": "Slate Muted", "canonical": "#5a6b7c" },
+      "teal-signal": { "role": "primary", "displayName": "Teal Signal", "canonical": "#0f7f78" },
+      "teal-deep": { "role": "primary", "displayName": "Teal Deep", "canonical": "#0c6c66" },
+      "teal-ink": { "role": "primary", "displayName": "Teal Ink", "canonical": "#f4fffd" },
+      "teal-soft": { "role": "primary", "displayName": "Teal Soft", "canonical": "rgba(15, 127, 120, 0.12)" },
+      "line": { "role": "neutral", "displayName": "Line", "canonical": "rgba(24, 36, 51, 0.12)" },
+      "line-strong": { "role": "neutral", "displayName": "Line Strong", "canonical": "rgba(24, 36, 51, 0.22)" },
+      "danger": { "role": "tertiary", "displayName": "Danger", "canonical": "#b42318" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display / Brand", "purpose": "Oversized OneMoreTime wordmark in the shell." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles (Библиотека, etc.)." },
+      "title": { "displayName": "Genre title", "purpose": "Library tree genre labels." },
+      "body": { "displayName": "Body", "purpose": "Default UI copy and controls." },
+      "label": { "displayName": "Label", "purpose": "Nav, view-mode, muted meta." }
+    },
+    "shadows": [
+      {
+        "name": "focus-ring",
+        "value": "0 0 0 3px rgba(15, 127, 120, 0.35)",
+        "purpose": "Keyboard focus only; no ambient elevation shadows."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Default easing for brand rise, view enter, player up, hover transforms."
+      },
+      {
+        "name": "brand-rise",
+        "value": "0.85s ease both; from translateY(14px)+blur to rest",
+        "purpose": "Brand and tag entrance."
+      },
+      {
+        "name": "view-in",
+        "value": "0.4s ease both; from translateY(10px) fade",
+        "purpose": "Section view switch."
+      },
+      {
+        "name": "player-up",
+        "value": "0.7s ease both; from translateY(100%)",
+        "purpose": "Sticky player entrance."
+      },
+      {
+        "name": "wash-shift",
+        "value": "22s ease infinite alternate; subtle scale/translate",
+        "purpose": "Atmosphere wash drift."
+      }
+    ],
+    "breakpoints": [
+      { "name": "shell-stack", "value": "900px" },
+      { "name": "player-stack", "value": "820px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Teal fill action (Войти, Создать, confirm).",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Войти</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; background: #0f7f78; color: #f4fffd; border: 0; padding: 0.55rem 0.95rem; font-family: Figtree, \"Segoe UI\", sans-serif; font-weight: 600; border-radius: 0.45rem; cursor: pointer; transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease; } .ds-btn-primary:hover { transform: translateY(-1px); background: #0c6c66; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(15, 127, 120, 0.35); }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary lined action (Выйти, Сменить, scan).",
+      "html": "<button class=\"ds-btn-ghost\" type=\"button\">Выйти</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; background: transparent; color: #182433; border: 1px solid rgba(24, 36, 51, 0.22); padding: 0.55rem 0.95rem; font-family: Figtree, \"Segoe UI\", sans-serif; font-weight: 600; border-radius: 0.45rem; cursor: pointer; } .ds-btn-ghost:hover { background: rgba(15, 127, 120, 0.12); } .ds-btn-ghost:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(15, 127, 120, 0.35); }"
+    },
+    {
+      "name": "Search Input",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Linen field with strong line border.",
+      "html": "<input class=\"ds-input\" type=\"search\" placeholder=\"Поиск…\" />",
+      "css": ".ds-input { width: 100%; background: #f7f9fb; border: 1px solid rgba(24, 36, 51, 0.22); border-radius: 0.45rem; color: #182433; padding: 0.65rem 0.8rem; font-family: Figtree, \"Segoe UI\", sans-serif; } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(15, 127, 120, 0.35); }"
+    },
+    {
+      "name": "Underline Nav",
+      "kind": "nav",
+      "refersTo": "nav-underline",
+      "description": "Shell section nav; active uses teal underline.",
+      "html": "<nav class=\"ds-nav\"><button type=\"button\" class=\"ds-nav-btn is-active\">Библиотека</button><button type=\"button\" class=\"ds-nav-btn\">Плейлисты</button></nav>",
+      "css": ".ds-nav { display: flex; gap: 0.15rem; } .ds-nav-btn { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #5a6b7c; font-family: Figtree, \"Segoe UI\", sans-serif; font-weight: 500; padding: 0.4rem 0.55rem; cursor: pointer; border-radius: 0; } .ds-nav-btn.is-active, .ds-nav-btn:hover { color: #182433; border-bottom-color: #0f7f78; }"
+    },
+    {
+      "name": "Library Tree Play",
+      "kind": "custom",
+      "refersTo": "tree-play",
+      "description": "Square play control on genre/artist/album rows.",
+      "html": "<button type=\"button\" class=\"ds-tree-play\" title=\"Play\">▶</button>",
+      "css": ".ds-tree-play { background: #f7f9fb; border: 1px solid rgba(24, 36, 51, 0.22); color: #0f7f78; width: 1.85rem; height: 1.85rem; border-radius: 0.45rem; cursor: pointer; font-size: 0.75rem; line-height: 1; } .ds-tree-play:hover { background: #0f7f78; color: #f4fffd; border-color: transparent; }"
+    },
+    {
+      "name": "Track Row",
+      "kind": "custom",
+      "refersTo": "track-row",
+      "description": "Library/favorites track line with hover wash.",
+      "html": "<div class=\"ds-track\" role=\"button\" tabindex=\"0\"><span class=\"ds-track-num\">1</span><div class=\"ds-track-meta\"><div class=\"ds-track-title\">Intro</div><div class=\"ds-track-sub\">Artist · 12s</div></div><button type=\"button\" class=\"ds-fav\">♡</button></div>",
+      "css": ".ds-track { display: grid; grid-template-columns: auto 1fr auto; gap: 0.75rem; align-items: center; padding: 0.65rem 0.45rem; border-radius: 0.45rem; border: 1px solid transparent; cursor: pointer; font-family: Figtree, \"Segoe UI\", sans-serif; color: #182433; } .ds-track:hover { background: rgba(15, 127, 120, 0.12); transform: translateX(2px); } .ds-track-num { color: #5a6b7c; width: 1.5rem; text-align: right; font-variant-numeric: tabular-nums; } .ds-track-title { font-weight: 600; } .ds-track-sub { color: #5a6b7c; font-size: 0.9rem; } .ds-fav { background: transparent; border: 0; color: #5a6b7c; font-size: 1.15rem; cursor: pointer; } .ds-fav.is-on { color: #0f7f78; }"
+    },
+    {
+      "name": "Player Play",
+      "kind": "button",
+      "refersTo": "player-play",
+      "description": "Primary transport control in the sticky player.",
+      "html": "<button type=\"button\" class=\"ds-player-play\">▶</button>",
+      "css": ".ds-player-play { width: 2.85rem; height: 2.85rem; background: #0f7f78; color: #f4fffd; border: 0; border-radius: 0.45rem; cursor: pointer; font-weight: 700; } .ds-player-play:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(15, 127, 120, 0.35); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Nordic daylight listening desk",
+    "overview": "Light, linen-cool field with slate ink and a single teal signal. The shell reads as a calm desk for listening — brand is oversized and primary; chrome stays quiet so playback stays first. Atmosphere is soft wash + paper grain, never neon glow or dark-mode default.\n\nDensity is medium-loose: generous shell padding, underline navigation, nested library tree, sticky bottom player. Motion is purposeful and sparse (brand rise, view enter, player slide-up, subtle track hover).",
+    "keyCharacteristics": [
+      "Light color-scheme; teal accent on small fraction of UI",
+      "Display Syne for brand / section / genre; Figtree for body and controls",
+      "Underline nav and view-mode toggles (no pill clusters)",
+      "Soft tonal panels + hairline borders; almost no drop shadows",
+      "Fixed bottom player; library as expandable tree with inline play"
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Teal is the only accent; use it for action and “now,” not decoration.", "section": "colors" },
+      { "name": "The Light Desk Rule", "body": "Stay in light linen/slate; do not flip the product to a dark neon skin.", "section": "colors" },
+      { "name": "The Brand-First Type Rule", "body": "No page headline should overpower the OneMoreTime brand block in the first shell.", "section": "typography" },
+      { "name": "The Phone-Equals-Desktop Rule", "body": "Same composition on narrow screens — stack shell and player; do not hide listening chrome.", "section": "layout" },
+      { "name": "The Flat Desk Rule", "body": "Prefer border + tonal fill over multi-layer shadows.", "section": "elevation" },
+      { "name": "The Soft Square Rule", "body": "Slightly rounded rectangles for controls; underlines for wayfinding — not capsules.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do keep OneMoreTime as the oversized Syne brand signal in the shell.",
+      "Do use teal only for primary actions, active state, and “now playing” cues.",
+      "Do prefer underline nav / view modes over pill clusters.",
+      "Do preserve the sticky player and library tree patterns when extending features.",
+      "Do keep light linen + slate; match --radius: 0.45rem and Figtree/Syne pairing."
+    ],
+    "donts": [
+      "Don't reintroduce dark neon, purple-indigo gradients, or glow/bloom accents.",
+      "Don't use rounded-full pills, emoji ornament, or multi-layer card shadows.",
+      "Don't put the Disk OAuth token or secrets in client-visible UI chrome.",
+      "Don't invent a second visual world on top of this desk — extend the incumbent tokens."
+    ]
+  }
+}

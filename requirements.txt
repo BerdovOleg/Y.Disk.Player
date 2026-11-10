@@ -1,0 +1,13 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+httpx>=0.27.0
+mutagen>=1.47.0
+cryptography>=43.0.0
+python-multipart>=0.0.12
+python-dotenv>=1.0.0
+itsdangerous>=2.2.0
+aiofiles>=24.1.0
+# libtorrent: not on PyPI for most platforms. On macOS:
+#   brew install libtorrent-rasterbar
+#   create venv with Homebrew python@3.15 --system-site-packages
+# so `import libtorrent` resolves from /opt/homebrew/lib/python3.15/site-packages
